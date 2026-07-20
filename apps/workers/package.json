@@ -86,6 +86,10 @@
     ]
   },
   "dependencies": {
+    "@justgo/auth": "workspace:*",
+    "@justgo/contracts": "workspace:*",
+    "@justgo/events": "workspace:*",
+    "@justgo/kernel": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
@@ -95,10 +99,7 @@
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.0",
     "tslib": "^2.3.0",
-    "@justgo/kernel": "workspace:*",
-    "@justgo/contracts": "workspace:*",
-    "@justgo/events": "workspace:*",
-    "@justgo/auth": "workspace:*"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",
