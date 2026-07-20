@@ -144,6 +144,12 @@ importers:
       '@justgo/kernel':
         specifier: workspace:*
         version: link:../../libs/shared/kernel
+      '@justgo/suppliers':
+        specifier: workspace:*
+        version: link:../../libs/platform/suppliers
+      '@justgo/vertical-part-store':
+        specifier: workspace:*
+        version: link:../../libs/verticals/part-store
       '@nestjs/common':
         specifier: ^11.0.0
         version: 11.1.28(reflect-metadata@0.1.14)(rxjs@7.8.1)
@@ -282,6 +288,33 @@ importers:
         specifier: ^8.20.0
         version: 8.20.0
 
+  libs/platform/suppliers:
+    dependencies:
+      '@justgo/auth':
+        specifier: workspace:*
+        version: link:../../shared/auth
+      '@justgo/contracts':
+        specifier: workspace:*
+        version: link:../../shared/contracts
+      '@justgo/events':
+        specifier: workspace:*
+        version: link:../../shared/events
+      '@justgo/kernel':
+        specifier: workspace:*
+        version: link:../../shared/kernel
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      pg:
+        specifier: ^8.16.3
+        version: 8.22.0
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+      zod:
+        specifier: ^4.1.13
+        version: 4.4.3
+
   libs/shared/auth:
     dependencies:
       '@justgo/kernel':
@@ -339,6 +372,25 @@ importers:
       tslib:
         specifier: ^2.3.0
         version: 2.8.1
+
+  libs/verticals/part-store:
+    dependencies:
+      '@justgo/contracts':
+        specifier: workspace:*
+        version: link:../../shared/contracts
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@justgo/kernel':
+        specifier: workspace:*
+        version: link:../../shared/kernel
+      '@nestjs/testing':
+        specifier: ^11.1.28
+        version: 11.1.28(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.1.28)(@nestjs/platform-express@11.1.28)
 
   test/architecture: {}
 
@@ -7974,6 +8026,14 @@ snapshots:
       tslib: 2.8.1
     optionalDependencies:
       '@nestjs/platform-express': 11.1.28(@nestjs/common@11.1.28(reflect-metadata@0.1.14)(rxjs@7.8.1))(@nestjs/core@11.1.28)
+
+  '@nestjs/testing@11.1.28(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.1.28)(@nestjs/platform-express@11.1.28)':
+    dependencies:
+      '@nestjs/common': 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      '@nestjs/core': 11.1.28(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/platform-express@11.1.28)(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      tslib: 2.8.1
+    optionalDependencies:
+      '@nestjs/platform-express': 11.1.28(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.1.28)
 
   '@noble/hashes@1.4.0': {}
 

@@ -29,6 +29,12 @@
     },
     {
       "path": "./libs/platform/identity"
+    },
+    {
+      "path": "./libs/platform/suppliers"
+    },
+    {
+      "path": "./libs/verticals/part-store"
     }
   ]
 }

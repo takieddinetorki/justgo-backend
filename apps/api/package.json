@@ -105,7 +105,9 @@
     "rxjs": "^7.8.0",
     "tslib": "^2.3.0",
     "zod": "^4.4.3",
-    "@justgo/identity": "workspace:*"
+    "@justgo/identity": "workspace:*",
+    "@justgo/suppliers": "workspace:*",
+    "@justgo/vertical-part-store": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",

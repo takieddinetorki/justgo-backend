@@ -4,8 +4,10 @@ import { EventsModule } from '@justgo/events';
 import { AuthModule } from '@justgo/auth';
 import { ContractsModule } from '@justgo/contracts';
 import { IdentityModule } from '@justgo/identity';
+import { SuppliersModule } from '@justgo/suppliers';
 import { loadConfig } from '../config';
 import { HealthController } from './health.controller';
+import { ENABLED_VERTICALS } from './verticals';
 
 const config = loadConfig();
 
@@ -33,10 +35,10 @@ const config = loadConfig();
             }
           : undefined,
     }),
-    ContractsModule,
+    ContractsModule.forRoot(ENABLED_VERTICALS),
     // bounded contexts (only when a database is configured — health stays up
     // without one so the skeleton keeps booting in bare environments)
-    ...(config.DATABASE_URL ? [IdentityModule] : []),
+    ...(config.DATABASE_URL ? [IdentityModule, SuppliersModule] : []),
   ],
   controllers: [HealthController],
 })

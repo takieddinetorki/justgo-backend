@@ -1,0 +1,32 @@
+{
+  "name": "@justgo/vertical-part-store",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@justgo-backend/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@justgo/contracts": "workspace:*",
+    "@nestjs/common": "^11.0.0",
+    "tslib": "^2.3.0"
+  },
+  "nx": {
+    "tags": [
+      "scope:vertical",
+      "type:impl"
+    ]
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^11.1.28",
+    "@justgo/kernel": "workspace:*"
+  }
+}
