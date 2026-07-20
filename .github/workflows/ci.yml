@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  DATABASE_URL: postgres://justgo:justgo@localhost:5432/justgo
+  REDIS_URL: redis://localhost:6379
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: justgo
+          POSTGRES_PASSWORD: justgo
+          POSTGRES_DB: justgo
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U justgo"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (includes module-boundary enforcement)
+        run: npx nx run-many -t lint
+
+      - name: Typecheck
+        run: npx nx run-many -t typecheck
+
+      - name: Migrate (ephemeral DB)
+        run: node scripts/migrate.mjs
+
+      - name: Unit, architecture & integration tests
+        run: npx nx run-many -t test
+
+      - name: Build
+        run: npx nx run-many -t build
+
+      - name: E2E (api)
+        run: npx nx run @justgo-backend/api-e2e:e2e
