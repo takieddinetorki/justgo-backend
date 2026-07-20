@@ -11,7 +11,8 @@
     "test": "nx run-many -t test",
     "typecheck": "nx run-many -t typecheck",
     "build": "nx run-many -t build",
-    "e2e": "nx run @justgo-backend/api-e2e:e2e"
+    "e2e": "nx run @justgo-backend/api-e2e:e2e",
+    "seed": "node scripts/seed.mjs"
   },
   "private": true,
   "devDependencies": {

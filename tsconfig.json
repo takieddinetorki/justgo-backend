@@ -26,6 +26,9 @@
     },
     {
       "path": "./test/architecture"
+    },
+    {
+      "path": "./libs/platform/identity"
     }
   ]
 }

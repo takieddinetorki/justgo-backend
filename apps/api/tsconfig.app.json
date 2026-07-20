@@ -2,9 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "types": [
-      "node"
-    ],
+    "types": ["node"],
     "tsBuildInfoFile": "dist/tsconfig.app.tsbuildinfo",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
@@ -16,9 +14,7 @@
     "noFallthroughCasesInSwitch": true,
     "rootDir": "src"
   },
-  "include": [
-    "src/**/*.ts"
-  ],
+  "include": ["src/**/*.ts"],
   "exclude": [
     "out-tsc",
     "dist",
@@ -30,6 +26,9 @@
     "eslint.config.mjs"
   ],
   "references": [
+    {
+      "path": "../../libs/platform/identity/tsconfig.lib.json"
+    },
     {
       "path": "../../libs/shared/kernel/tsconfig.lib.json"
     },

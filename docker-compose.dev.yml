@@ -1,24 +1,9 @@
-# Local dev infrastructure (§20). Auth/Realtime/Storage come from the
-# self-hosted Supabase stack (separate deployment) — point SUPABASE_URL at it.
-# This compose covers only what the backend needs directly: Postgres+PostGIS
-# and Redis.
+# Local dev infrastructure (§20). Postgres now comes from the self-hosted
+# Supabase stack in infra/supabase (its supabase/postgres image ships PostGIS
+# and the auth schema RLS depends on) — start it with:
+#   cd infra/supabase && docker compose up -d
+# This compose covers only what Supabase doesn't provide: Redis for BullMQ.
 services:
-  postgres:
-    image: postgis/postgis:16-3.4
-    environment:
-      POSTGRES_USER: justgo
-      POSTGRES_PASSWORD: justgo
-      POSTGRES_DB: justgo
-    ports:
-      - '5432:5432'
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U justgo']
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   redis:
     image: redis:7-alpine
     ports:
@@ -28,6 +13,3 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-
-volumes:
-  pgdata:

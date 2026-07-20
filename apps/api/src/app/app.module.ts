@@ -3,6 +3,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { EventsModule } from '@justgo/events';
 import { AuthModule } from '@justgo/auth';
 import { ContractsModule } from '@justgo/contracts';
+import { IdentityModule } from '@justgo/identity';
 import { loadConfig } from '../config';
 import { HealthController } from './health.controller';
 
@@ -22,11 +23,20 @@ const config = loadConfig();
     }),
     EventsModule.forRoot({ redisUrl: config.REDIS_URL }),
     AuthModule.forRoot({
-      jwt: config.jwksUrl
-        ? { jwksUrl: config.jwksUrl, issuer: config.JWT_ISSUER, audience: config.JWT_AUDIENCE }
-        : undefined,
+      jwt:
+        config.JWT_SECRET || config.jwksUrl
+          ? {
+              secret: config.JWT_SECRET,
+              jwksUrl: config.jwksUrl,
+              issuer: config.JWT_ISSUER,
+              audience: config.JWT_AUDIENCE,
+            }
+          : undefined,
     }),
     ContractsModule,
+    // bounded contexts (only when a database is configured — health stays up
+    // without one so the skeleton keeps booting in bare environments)
+    ...(config.DATABASE_URL ? [IdentityModule] : []),
   ],
   controllers: [HealthController],
 })

@@ -21,3 +21,10 @@ export const AUTH_CONTEXT = 'authContext';
 export function hasPermission(ctx: AuthContext, permission: string): boolean {
   return ctx.permissions.includes(permission);
 }
+
+/** Reads the AuthContext the RbacGuard attached to the request. */
+export function authFromRequest(request: Record<string, unknown>): AuthContext {
+  const ctx = request[AUTH_CONTEXT] as AuthContext | undefined;
+  if (!ctx) throw new Error('AuthContext missing — is RbacGuard active on this route?');
+  return ctx;
+}

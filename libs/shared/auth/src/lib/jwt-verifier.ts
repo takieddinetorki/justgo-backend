@@ -3,8 +3,13 @@ import { asId, UnauthenticatedError, type AccountId, type BranchId, type Supplie
 import type { AuthContext } from './auth-context';
 
 export interface JwtVerifierOptions {
-  /** JWKS endpoint of the self-hosted Supabase GoTrue, e.g. `${SUPABASE_URL}/auth/v1/.well-known/jwks.json` */
-  jwksUrl: string;
+  /**
+   * HS256 shared secret — self-hosted Supabase GoTrue signs symmetric by
+   * default (JWT_SECRET in the stack's .env). Takes precedence over jwksUrl.
+   */
+  secret?: string;
+  /** JWKS endpoint for asymmetric setups, e.g. `${SUPABASE_URL}/auth/v1/.well-known/jwks.json` */
+  jwksUrl?: string;
   issuer?: string;
   audience?: string;
 }
@@ -26,19 +31,24 @@ interface JustGoClaims extends JWTPayload {
 }
 
 export class JoseTokenVerifier implements TokenVerifier {
-  private readonly jwks: ReturnType<typeof createRemoteJWKSet>;
+  private readonly jwks: ReturnType<typeof createRemoteJWKSet> | null;
+  private readonly secretKey: Uint8Array | null;
 
   constructor(private readonly opts: JwtVerifierOptions) {
-    this.jwks = createRemoteJWKSet(new URL(opts.jwksUrl));
+    if (!opts.secret && !opts.jwksUrl) {
+      throw new TypeError('JwtVerifierOptions requires secret (HS256) or jwksUrl');
+    }
+    this.secretKey = opts.secret ? new TextEncoder().encode(opts.secret) : null;
+    this.jwks = !opts.secret && opts.jwksUrl ? createRemoteJWKSet(new URL(opts.jwksUrl)) : null;
   }
 
   async verify(bearerToken: string): Promise<AuthContext> {
     let claims: JustGoClaims;
+    const verifyOpts = { issuer: this.opts.issuer, audience: this.opts.audience };
     try {
-      const { payload } = await jwtVerify(bearerToken, this.jwks, {
-        issuer: this.opts.issuer,
-        audience: this.opts.audience,
-      });
+      const { payload } = this.secretKey
+        ? await jwtVerify(bearerToken, this.secretKey, verifyOpts)
+        : await jwtVerify(bearerToken, this.jwks as ReturnType<typeof createRemoteJWKSet>, verifyOpts);
       claims = payload as JustGoClaims;
     } catch {
       throw new UnauthenticatedError('Invalid or expired token');

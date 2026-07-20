@@ -4,6 +4,9 @@
   "include": [],
   "references": [
     {
+      "path": "../../libs/platform/identity"
+    },
+    {
       "path": "../../libs/shared/kernel"
     },
     {
