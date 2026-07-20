@@ -1,0 +1,25 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "files": [],
+  "include": [],
+  "references": [
+    {
+      "path": "../../libs/shared/kernel"
+    },
+    {
+      "path": "../../libs/shared/events"
+    },
+    {
+      "path": "../../libs/shared/contracts"
+    },
+    {
+      "path": "../../libs/shared/auth"
+    },
+    {
+      "path": "./tsconfig.app.json"
+    },
+    {
+      "path": "./tsconfig.spec.json"
+    }
+  ]
+}

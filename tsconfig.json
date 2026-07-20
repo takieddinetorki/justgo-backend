@@ -2,5 +2,30 @@
   "extends": "./tsconfig.base.json",
   "compileOnSave": false,
   "files": [],
-  "references": []
+  "references": [
+    {
+      "path": "./apps/api-e2e"
+    },
+    {
+      "path": "./apps/api"
+    },
+    {
+      "path": "./apps/workers"
+    },
+    {
+      "path": "./libs/shared/kernel"
+    },
+    {
+      "path": "./libs/shared/contracts"
+    },
+    {
+      "path": "./libs/shared/events"
+    },
+    {
+      "path": "./libs/shared/auth"
+    },
+    {
+      "path": "./test/architecture"
+    }
+  ]
 }

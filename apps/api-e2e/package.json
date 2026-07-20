@@ -1,0 +1,29 @@
+{
+  "name": "@justgo-backend/api-e2e",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "implicitDependencies": [
+      "@justgo-backend/api"
+    ],
+    "targets": {
+      "e2e": {
+        "executor": "@nx/jest:jest",
+        "outputs": [
+          "{projectRoot}/test-output/jest/coverage"
+        ],
+        "options": {
+          "jestConfig": "apps/api-e2e/jest.config.cjs",
+          "passWithNoTests": true
+        },
+        "dependsOn": [
+          "@justgo-backend/api:build",
+          "@justgo-backend/api:serve"
+        ]
+      }
+    },
+    "tags": [
+      "scope:app"
+    ]
+  }
+}
