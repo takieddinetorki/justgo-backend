@@ -35,6 +35,12 @@
     },
     {
       "path": "./libs/verticals/part-store"
+    },
+    {
+      "path": "./libs/platform/requests"
+    },
+    {
+      "path": "./libs/platform/orders"
     }
   ]
 }

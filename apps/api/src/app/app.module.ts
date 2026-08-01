@@ -2,15 +2,23 @@ import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import { EventsModule } from '@justgo/events';
 import { AuthModule } from '@justgo/auth';
-import { ContractsModule } from '@justgo/contracts';
+import { ContractsModule, SUPPLIER_TARGETING_PORT } from '@justgo/contracts';
 import { IdentityModule } from '@justgo/identity';
 import { SuppliersModule } from '@justgo/suppliers';
+import { RequestsModule } from '@justgo/requests';
+import { OrdersModule } from '@justgo/orders';
 import { loadConfig } from '../config';
 import { HealthController } from './health.controller';
 import { ENABLED_VERTICALS } from './verticals';
+import { SupplierTargetingAdapter } from './supplier-targeting.adapter';
 
 const config = loadConfig();
 
+/**
+ * Composition root. Bounded contexts load only when a database is
+ * configured, so the skeleton still boots (health only) in bare
+ * environments.
+ */
 @Module({
   imports: [
     LoggerModule.forRoot({
@@ -36,10 +44,19 @@ const config = loadConfig();
           : undefined,
     }),
     ContractsModule.forRoot(ENABLED_VERTICALS),
-    // bounded contexts (only when a database is configured — health stays up
-    // without one so the skeleton keeps booting in bare environments)
-    ...(config.DATABASE_URL ? [IdentityModule, SuppliersModule] : []),
+    ...(config.DATABASE_URL
+      ? [IdentityModule, SuppliersModule, RequestsModule, OrdersModule]
+      : []),
   ],
   controllers: [HealthController],
+  providers: [
+    // binds the requests module's fan-out seam to the suppliers module
+    ...(config.DATABASE_URL
+      ? [
+          SupplierTargetingAdapter,
+          { provide: SUPPLIER_TARGETING_PORT, useExisting: SupplierTargetingAdapter },
+        ]
+      : []),
+  ],
 })
 export class AppModule {}

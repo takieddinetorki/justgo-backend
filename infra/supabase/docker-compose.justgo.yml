@@ -1,0 +1,34 @@
+# JustGo isolation override.
+#
+# The upstream compose file hardcodes container_name: supabase-* for every
+# service. This machine also hosts a SEPARATE Supabase stack for the Orea
+# project (F:\Excellist\Orea\supabase\docker), which owns those names. Both
+# stacks must coexist, so every JustGo container is renamed here and every
+# published port is remapped in .env (Kong 8100/8543, Postgres 55432,
+# transaction pooler 56543).
+#
+# Layered via COMPOSE_FILE in .env — never edit docker-compose.yml itself,
+# so the upstream file stays updatable.
+services:
+  studio:
+    container_name: justgo-supabase-studio
+  kong:
+    container_name: justgo-supabase-kong
+  auth:
+    container_name: justgo-supabase-auth
+  rest:
+    container_name: justgo-supabase-rest
+  realtime:
+    container_name: justgo-supabase-realtime
+  storage:
+    container_name: justgo-supabase-storage
+  imgproxy:
+    container_name: justgo-supabase-imgproxy
+  meta:
+    container_name: justgo-supabase-meta
+  functions:
+    container_name: justgo-supabase-edge-functions
+  db:
+    container_name: justgo-supabase-db
+  supavisor:
+    container_name: justgo-supabase-pooler

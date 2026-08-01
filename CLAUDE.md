@@ -9,18 +9,35 @@ truth). This file is the working summary; keep both in sync as Open Questions
 - **Phase 0 complete**: Nx monorepo, `apps/api` + `apps/workers`,
   `libs/shared/{kernel,contracts,events,auth}`, outbox → relay → bus pipeline,
   architecture fitness tests, CI.
-- **Next: Phase 1** — identity, suppliers core, part-store vertical, requests
-  (core loop §8.1), orders, notifications/realtime. Do not start a phase
-  before the previous phase's DoD is green (spec §19).
+- **Phase 1 core loop complete**: `identity`, `suppliers` + `part-store`
+  vertical, `requests` (§8.1 state machines, idempotent submit,
+  capability-driven fan-out), `orders` (created from `QuoteAccepted`).
+  Verified against the live self-hosted stack: RLS isolation and the full
+  request → fan-out → quote → accept → order loop.
+- **Remaining for Phase 1 DoD**: `notifications` + `realtime` (Supabase
+  Realtime channels, FCM stub), and supplier-scoped JWT issuance so the
+  supplier inbox can be exercised over HTTP.
+- Do not start a phase before the previous phase's DoD is green (spec §19).
 
 ## Decisions made
 
-- **Supabase is SELF-HOSTED.** Never assume managed Supabase; auth/realtime/
-  storage URLs come from `SUPABASE_URL` env. JWTs verified via JWKS
-  (`JWT_JWKS_URL`, defaults to `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`).
+- **Supabase is SELF-HOSTED**, vendored in `infra/supabase` (upstream
+  `supabase/docker`). See `infra/supabase/README.justgo.md` — critically,
+  **this machine also runs a separate Orea Supabase stack**, so JustGo's uses
+  `COMPOSE_PROJECT_NAME=justgo-supabase`, renamed containers
+  (`docker-compose.justgo.yml`), and remapped ports (Kong **8100**, Postgres
+  **55432**, transaction pooler **56543**). Removing that isolation will
+  clobber Orea's containers.
+- Self-hosted GoTrue signs **HS256** with `JWT_SECRET` — the API verifies with
+  the shared secret; JWKS support remains for asymmetric setups.
 - Migrations run with `pnpm migrate` (`scripts/migrate.mjs`, plain SQL,
-  forward-only, `db/migrations/NNNN_description.sql`). RLS policies live in
-  migrations.
+  forward-only, `db/migrations/NNNN_description.sql`), then `pnpm seed`. RLS
+  policies live in migrations. Because they are forward-only, fixes ship as
+  NEW files (see 0007–0009) rather than edits to applied migrations.
+- RLS uses portable `app.*()` claim helpers (migration 0002) instead of
+  Supabase's managed-only `auth.*()`, so policies behave identically on plain
+  Postgres in CI. The roles need `grant usage on schema app` (0009) or every
+  policy fails closed.
 - jose is pinned to v5 (v6 is ESM-only and breaks Jest CJS).
 
 ## Architecture (enforced — CI fails on violations)

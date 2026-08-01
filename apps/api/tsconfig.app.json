@@ -27,6 +27,12 @@
   ],
   "references": [
     {
+      "path": "../../libs/platform/orders/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/platform/requests/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/verticals/part-store/tsconfig.lib.json"
     },
     {

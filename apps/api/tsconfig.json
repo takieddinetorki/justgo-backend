@@ -4,6 +4,12 @@
   "include": [],
   "references": [
     {
+      "path": "../../libs/platform/orders"
+    },
+    {
+      "path": "../../libs/platform/requests"
+    },
+    {
       "path": "../../libs/verticals/part-store"
     },
     {

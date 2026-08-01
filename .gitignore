@@ -48,3 +48,9 @@ test-output
 # local env
 .env
 .env.local
+
+# self-hosted supabase stack (secrets + data)
+infra/supabase/.env
+infra/supabase/volumes/db/data
+infra/supabase/volumes/storage
+infra/supabase/run.sh.bak

@@ -107,7 +107,9 @@
     "zod": "^4.4.3",
     "@justgo/identity": "workspace:*",
     "@justgo/suppliers": "workspace:*",
-    "@justgo/vertical-part-store": "workspace:*"
+    "@justgo/vertical-part-store": "workspace:*",
+    "@justgo/requests": "workspace:*",
+    "@justgo/orders": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",
