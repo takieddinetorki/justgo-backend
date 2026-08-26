@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@types/pg': 8.20.0
+
 importers:
 
   .:
@@ -281,7 +284,7 @@ importers:
         specifier: ^11.0.0
         version: 11.1.28(@nestjs/common@11.1.28(reflect-metadata@0.1.14)(rxjs@7.8.1))(@nestjs/core@11.1.28)(@nestjs/platform-express@11.1.28)
       '@types/pg':
-        specifier: ^8.20.0
+        specifier: 8.20.0
         version: 8.20.0
 
   libs/crosscutting/notifications:
@@ -312,7 +315,7 @@ importers:
         version: 4.4.3
     devDependencies:
       '@types/pg':
-        specifier: ^8.11.10
+        specifier: 8.20.0
         version: 8.20.0
 
   libs/crosscutting/realtime:
@@ -382,7 +385,7 @@ importers:
         version: 4.4.3
     devDependencies:
       '@types/pg':
-        specifier: ^8.20.0
+        specifier: 8.20.0
         version: 8.20.0
 
   libs/platform/orders:
@@ -413,8 +416,8 @@ importers:
         version: 4.4.3
     devDependencies:
       '@types/pg':
-        specifier: ^8.23.1
-        version: 8.23.1
+        specifier: 8.20.0
+        version: 8.20.0
 
   libs/platform/requests:
     dependencies:
@@ -444,8 +447,8 @@ importers:
         version: 4.4.3
     devDependencies:
       '@types/pg':
-        specifier: ^8.23.1
-        version: 8.23.1
+        specifier: 8.20.0
+        version: 8.20.0
 
   libs/platform/suppliers:
     dependencies:
@@ -475,8 +478,8 @@ importers:
         version: 4.4.3
     devDependencies:
       '@types/pg':
-        specifier: ^8.23.1
-        version: 8.23.1
+        specifier: 8.20.0
+        version: 8.20.0
 
   libs/shared/auth:
     dependencies:
@@ -527,7 +530,7 @@ importers:
         version: 2.8.1
     devDependencies:
       '@types/pg':
-        specifier: ^8.20.0
+        specifier: 8.20.0
         version: 8.20.0
 
   libs/shared/kernel:
@@ -2670,14 +2673,8 @@ packages:
   '@types/pg-pool@2.0.7':
     resolution: {integrity: sha512-U4CwmGVQcbEuqpyju8/ptOKg6gEC+Tqsvj2xS9o1g71bUh8twxnC6ZL5rZKCsGN0iyH0CwgUyc9VR5owNQF9Ng==}
 
-  '@types/pg@8.15.6':
-    resolution: {integrity: sha512-NoaMtzhxOrubeL/7UZuNTrejB4MPAJ0RpxZqXQf2qXuVlTPuG6Y8p4u9dKRaue4yjmC7ZhzVO2/Yyyn25znrPQ==}
-
   '@types/pg@8.20.0':
     resolution: {integrity: sha512-bEPFOaMAHTEP1EzpvHTbmwR8UsFyHSKsRisLIHVMXnpNefSbGA1bD6CVy+qKjGSqmZqNqBDV2azOBo8TgkcVow==}
-
-  '@types/pg@8.23.1':
-    resolution: {integrity: sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==}
 
   '@types/qs@6.15.1':
     resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
@@ -9056,7 +9053,7 @@ snapshots:
       '@opentelemetry/instrumentation': 0.220.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
       '@opentelemetry/sql-common': 0.42.0(@opentelemetry/api@1.9.1)
-      '@types/pg': 8.15.6
+      '@types/pg': 8.20.0
       '@types/pg-pool': 2.0.7
     transitivePeerDependencies:
       - supports-color
@@ -9737,19 +9734,7 @@ snapshots:
     dependencies:
       '@types/pg': 8.20.0
 
-  '@types/pg@8.15.6':
-    dependencies:
-      '@types/node': 20.19.9
-      pg-protocol: 1.15.0
-      pg-types: 2.2.0
-
   '@types/pg@8.20.0':
-    dependencies:
-      '@types/node': 20.19.9
-      pg-protocol: 1.15.0
-      pg-types: 2.2.0
-
-  '@types/pg@8.23.1':
     dependencies:
       '@types/node': 20.19.9
       pg-protocol: 1.15.0

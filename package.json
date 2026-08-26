@@ -57,5 +57,10 @@
     "axios": "^1.6.0",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@types/pg": "8.20.0"
+    }
   }
 }
