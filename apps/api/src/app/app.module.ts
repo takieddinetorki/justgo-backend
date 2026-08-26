@@ -9,6 +9,8 @@ import { RequestsModule } from '@justgo/requests';
 import { OrdersModule } from '@justgo/orders';
 import { RealtimeModule } from '@justgo/realtime';
 import { NotificationsModule } from '@justgo/notifications';
+import { TecDocModule } from '@justgo/tecdoc';
+import { CatalogueModule } from '@justgo/catalogue';
 import { loadConfig } from '../config';
 import { HealthController } from './health.controller';
 import { ENABLED_VERTICALS } from './verticals';
@@ -46,6 +48,8 @@ const config = loadConfig();
           : undefined,
     }),
     ContractsModule.forRoot(ENABLED_VERTICALS),
+    TecDocModule.forRoot(),
+    CatalogueModule,
     RealtimeModule.forRoot({
       supabaseUrl: config.SUPABASE_URL,
       apiKey: config.SUPABASE_SERVICE_KEY,

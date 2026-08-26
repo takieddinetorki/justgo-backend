@@ -27,6 +27,12 @@
   ],
   "references": [
     {
+      "path": "../../libs/platform/catalogue/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/integrations/tecdoc/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/crosscutting/notifications/tsconfig.lib.json"
     },
     {

@@ -1,0 +1,28 @@
+{
+  "name": "@justgo/tecdoc",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@justgo-backend/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "tslib": "^2.3.0",
+    "@justgo/contracts": "workspace:*",
+    "@nestjs/common": "^11.0.0"
+  },
+  "nx": {
+    "tags": [
+      "scope:integration",
+      "type:impl"
+    ]
+  }
+}

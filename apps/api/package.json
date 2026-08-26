@@ -111,7 +111,9 @@
     "@justgo/requests": "workspace:*",
     "@justgo/orders": "workspace:*",
     "@justgo/realtime": "workspace:*",
-    "@justgo/notifications": "workspace:*"
+    "@justgo/notifications": "workspace:*",
+    "@justgo/tecdoc": "workspace:*",
+    "@justgo/catalogue": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",

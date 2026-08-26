@@ -4,6 +4,12 @@
   "include": [],
   "references": [
     {
+      "path": "../../libs/platform/catalogue"
+    },
+    {
+      "path": "../../libs/integrations/tecdoc"
+    },
+    {
       "path": "../../libs/crosscutting/notifications"
     },
     {

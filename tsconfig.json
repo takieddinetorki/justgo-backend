@@ -47,6 +47,12 @@
     },
     {
       "path": "./libs/crosscutting/notifications"
+    },
+    {
+      "path": "./libs/integrations/tecdoc"
+    },
+    {
+      "path": "./libs/platform/catalogue"
     }
   ]
 }
