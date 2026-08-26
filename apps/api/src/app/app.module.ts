@@ -7,6 +7,8 @@ import { IdentityModule } from '@justgo/identity';
 import { SuppliersModule } from '@justgo/suppliers';
 import { RequestsModule } from '@justgo/requests';
 import { OrdersModule } from '@justgo/orders';
+import { RealtimeModule } from '@justgo/realtime';
+import { NotificationsModule } from '@justgo/notifications';
 import { loadConfig } from '../config';
 import { HealthController } from './health.controller';
 import { ENABLED_VERTICALS } from './verticals';
@@ -44,8 +46,12 @@ const config = loadConfig();
           : undefined,
     }),
     ContractsModule.forRoot(ENABLED_VERTICALS),
+    RealtimeModule.forRoot({
+      supabaseUrl: config.SUPABASE_URL,
+      apiKey: config.SUPABASE_SERVICE_KEY,
+    }),
     ...(config.DATABASE_URL
-      ? [IdentityModule, SuppliersModule, RequestsModule, OrdersModule]
+      ? [IdentityModule, SuppliersModule, RequestsModule, OrdersModule, NotificationsModule]
       : []),
   ],
   controllers: [HealthController],

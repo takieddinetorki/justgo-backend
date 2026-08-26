@@ -10,6 +10,9 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url().optional(),
   REDIS_URL: z.string().url().optional(),
   SUPABASE_URL: z.string().url().optional(),
+  /** service_role key — used server-side for Realtime broadcast. */
+  SUPABASE_SERVICE_KEY: z.string().optional(),
+  SUPABASE_ANON_KEY: z.string().optional(),
   /** HS256 secret of the self-hosted GoTrue (takes precedence over JWKS). */
   JWT_SECRET: z.string().min(32).optional(),
   /** Defaults to `${SUPABASE_URL}/auth/v1/.well-known/jwks.json` when unset. */

@@ -109,7 +109,9 @@
     "@justgo/suppliers": "workspace:*",
     "@justgo/vertical-part-store": "workspace:*",
     "@justgo/requests": "workspace:*",
-    "@justgo/orders": "workspace:*"
+    "@justgo/orders": "workspace:*",
+    "@justgo/realtime": "workspace:*",
+    "@justgo/notifications": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",

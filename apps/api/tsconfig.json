@@ -4,6 +4,12 @@
   "include": [],
   "references": [
     {
+      "path": "../../libs/crosscutting/notifications"
+    },
+    {
+      "path": "../../libs/crosscutting/realtime"
+    },
+    {
       "path": "../../libs/platform/orders"
     },
     {

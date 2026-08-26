@@ -27,6 +27,7 @@ import {
   QUOTE_ACCEPTED,
   QUOTE_ALTERNATIVE_OFFERED,
   QUOTE_REJECTED,
+  QUOTE_REQUESTED,
   QUOTE_SUBMITTED,
   REQUEST_EXPIRED,
   REQUEST_SUBMITTED,
@@ -209,17 +210,50 @@ export class PgRequestsRepository {
     });
   }
 
-  /** Creates one pending quote stub per targeted supplier (idempotent). */
+  /**
+   * Creates one pending quote stub per targeted supplier and emits a
+   * QuoteRequested event per NEW stub (§13 supplier signal). Idempotent:
+   * `on conflict do nothing` means a replay adds no rows and no events.
+   */
   async fanOut(requestId: RequestId, supplierIds: SupplierId[]): Promise<number> {
     if (supplierIds.length === 0) return 0;
-    const res = await this.pool.query(
-      `insert into requests.quotes (request_id, supplier_id)
-       select $1, unnest($2::uuid[])
-       on conflict (request_id, supplier_id) do nothing
-       returning id`,
-      [requestId, supplierIds],
-    );
-    return res.rowCount ?? 0;
+    return this.tx(async (client) => {
+      const req = await client.query<RequestRow>(
+        `select ${REQUEST_COLS} from requests.part_requests where id = $1`,
+        [requestId],
+      );
+      const request = req.rows[0];
+      if (!request) throw new NotFoundError('Request', requestId);
+
+      const inserted = await client.query<{ id: string; supplier_id: string }>(
+        `insert into requests.quotes (request_id, supplier_id)
+         select $1, unnest($2::uuid[])
+         on conflict (request_id, supplier_id) do nothing
+         returning id, supplier_id`,
+        [requestId, supplierIds],
+      );
+      if (inserted.rows.length === 0) return 0;
+
+      await this.outbox.appendWith(
+        client,
+        inserted.rows.map((r) =>
+          makeEvent({
+            type: QUOTE_REQUESTED,
+            aggregateId: asId<Uuid>(requestId),
+            payload: {
+              quoteId: r.id,
+              requestId,
+              supplierId: r.supplier_id,
+              clientAccountId: request.client_account_id,
+              categoryKey: request.category_key,
+              tecdocArticleId: toInt(request.tecdoc_article_id),
+              freeText: request.free_text,
+            },
+          }),
+        ),
+      );
+      return inserted.rows.length;
+    });
   }
 
   async findForClient(

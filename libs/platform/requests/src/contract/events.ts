@@ -10,6 +10,19 @@ export interface RequestSubmittedV1 {
   targetSupplierId: string | null;
 }
 
+export const QUOTE_REQUESTED = 'requests.QuoteRequested';
+/** One per targeted supplier when a request fans out — the supplier's
+ *  "a new request needs your quote" signal (§13). */
+export interface QuoteRequestedV1 {
+  quoteId: string;
+  requestId: string;
+  supplierId: string;
+  clientAccountId: string;
+  categoryKey: string | null;
+  tecdocArticleId: number | null;
+  freeText: string | null;
+}
+
 export const QUOTE_SUBMITTED = 'requests.QuoteSubmitted';
 export interface QuoteSubmittedV1 {
   quoteId: string;

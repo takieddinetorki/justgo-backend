@@ -144,9 +144,15 @@ importers:
       '@justgo/kernel':
         specifier: workspace:*
         version: link:../../libs/shared/kernel
+      '@justgo/notifications':
+        specifier: workspace:*
+        version: link:../../libs/crosscutting/notifications
       '@justgo/orders':
         specifier: workspace:*
         version: link:../../libs/platform/orders
+      '@justgo/realtime':
+        specifier: workspace:*
+        version: link:../../libs/crosscutting/realtime
       '@justgo/requests':
         specifier: workspace:*
         version: link:../../libs/platform/requests
@@ -265,6 +271,46 @@ importers:
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
+
+  libs/crosscutting/notifications:
+    dependencies:
+      '@justgo/auth':
+        specifier: workspace:*
+        version: link:../../shared/auth
+      '@justgo/events':
+        specifier: workspace:*
+        version: link:../../shared/events
+      '@justgo/kernel':
+        specifier: workspace:*
+        version: link:../../shared/kernel
+      '@justgo/realtime':
+        specifier: workspace:*
+        version: link:../realtime
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      pg:
+        specifier: ^8.16.3
+        version: 8.22.0
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+      zod:
+        specifier: ^4.1.13
+        version: 4.4.3
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.11.10
+        version: 8.20.0
+
+  libs/crosscutting/realtime:
+    dependencies:
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
 
   libs/platform/identity:
     dependencies:

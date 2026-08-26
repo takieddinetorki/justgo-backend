@@ -41,6 +41,12 @@
     },
     {
       "path": "./libs/platform/orders"
+    },
+    {
+      "path": "./libs/crosscutting/realtime"
+    },
+    {
+      "path": "./libs/crosscutting/notifications"
     }
   ]
 }
