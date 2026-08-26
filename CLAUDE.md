@@ -6,18 +6,29 @@ truth). This file is the working summary; keep both in sync as Open Questions
 
 ## Current status
 
-- **Phase 0 complete**: Nx monorepo, `apps/api` + `apps/workers`,
-  `libs/shared/{kernel,contracts,events,auth}`, outbox → relay → bus pipeline,
-  architecture fitness tests, CI.
-- **Phase 1 core loop complete**: `identity`, `suppliers` + `part-store`
-  vertical, `requests` (§8.1 state machines, idempotent submit,
-  capability-driven fan-out), `orders` (created from `QuoteAccepted`).
-  Verified against the live self-hosted stack: RLS isolation and the full
-  request → fan-out → quote → accept → order loop.
-- **Remaining for Phase 1 DoD**: `notifications` + `realtime` (Supabase
-  Realtime channels, FCM stub), and supplier-scoped JWT issuance so the
-  supplier inbox can be exercised over HTTP.
-- Do not start a phase before the previous phase's DoD is green (spec §19).
+- **Phase 0 complete** (pushed, CI green): Nx monorepo, api + workers,
+  shared kernel/contracts/events/auth, outbox -> relay -> bus, architecture
+  fitness tests, CI.
+- **Phase 1 complete** (built + verified against the live self-hosted stack;
+  push pending): identity, suppliers + part-store vertical, requests (the
+  §8.1 core loop with idempotent submit + capability-driven fan-out), orders,
+  notifications + realtime (Supabase Realtime broadcast + FCM stub), and the
+  catalogue port with a stub TecDoc adapter. RLS isolation and the full
+  request -> fan-out -> quote -> accept -> order loop are proven live.
+- **Docs**: OpenAPI served at `/v1/docs` (`/v1/docs-json`), built in
+  `apps/api/src/openapi.ts`; field-level contract in
+  `docs/INTEGRATION_GUIDE.md`.
+- **Next: Phase 2** — real TecDoc adapter (circuit breaker + Redis short-TTL
+  cache), vehicles/garage + health/maintenance, media + OCR, discovery
+  (PostGIS), wholesaler vertical. Do not start a phase before the previous
+  DoD is green (spec §19).
+
+### Phase-1 loose ends to revisit
+- Reactors (fan-out, order-from-quote, notifications) run in the API process;
+  spec §5 intends them in `apps/workers`. Each hop is proven by integration
+  tests; consolidating into the worker is a hardening cleanup.
+- Supplier-scoped JWT issuance (role -> `supplier_id` claim) is an operational
+  step, not yet an endpoint — test tokens are minted by hand.
 
 ## Decisions made
 

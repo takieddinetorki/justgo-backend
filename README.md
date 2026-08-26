@@ -36,6 +36,17 @@ npx nx serve @justgo-backend/api      # http://localhost:3000/v1/health
 npx nx serve @justgo-backend/workers  # outbox relay + demo consumer
 ```
 
+## API docs & frontend integration
+
+- Interactive OpenAPI (Swagger UI): **`GET /v1/docs`** — raw spec at `GET /v1/docs-json`.
+- Field-level contract + auth/realtime/idempotency: [docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md).
+
+Generate a typed client from the running API:
+
+```bash
+npx openapi-typescript http://localhost:3000/v1/docs-json -o src/api/schema.ts
+```
+
 ## Verify
 
 ```sh

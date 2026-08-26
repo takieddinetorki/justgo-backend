@@ -1,5 +1,6 @@
 const { NxAppWebpackPlugin } = require('@nx/webpack/app-plugin');
 const { join } = require('path');
+const webpack = require('webpack');
 
 module.exports = {
   resolve: {
@@ -13,6 +14,13 @@ module.exports = {
     }),
   },
   plugins: [
+    // @nestjs/swagger -> @nestjs/mapped-types dynamically require()s the
+    // optional class-validator / class-transformer (guarded at runtime and
+    // unused here — we validate with zod). Ignore so the node bundle builds
+    // clean instead of erroring on the unresolved optional peers.
+    new webpack.IgnorePlugin({
+      resourceRegExp: /^class-(validator|transformer)(\/.*)?$/,
+    }),
     new NxAppWebpackPlugin({
       target: 'node',
       compiler: 'swc',
