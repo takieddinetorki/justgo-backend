@@ -47,7 +47,7 @@ describePg('QuoteAccepted → order', () => {
     const event = acceptedEvent();
     await reactor.handle(event);
 
-    const p = event.payload as Record<string, string>;
+    const p = event.payload as unknown as Record<string, string>;
     const res = await pool.query(
       `select client_account_id, supplier_id, amount_minor, currency, status, fulfilment
          from orders.orders where quote_id = $1`,
@@ -69,7 +69,7 @@ describePg('QuoteAccepted → order', () => {
     await reactor.handle(event);
     await reactor.handle(event); // at-least-once redelivery
 
-    const p = event.payload as Record<string, string>;
+    const p = event.payload as unknown as Record<string, string>;
     const rows = await pool.query(`select id from orders.orders where quote_id = $1`, [
       p['quoteId'],
     ]);
@@ -85,7 +85,7 @@ describePg('QuoteAccepted → order', () => {
   it('walks the fulfilment lifecycle and blocks illegal jumps', async () => {
     const event = acceptedEvent();
     await reactor.handle(event);
-    const p = event.payload as Record<string, string>;
+    const p = event.payload as unknown as Record<string, string>;
     const row = await pool.query<{ id: string }>(
       `select id from orders.orders where quote_id = $1`,
       [p['quoteId']],
@@ -104,7 +104,7 @@ describePg('QuoteAccepted → order', () => {
   it('requires a workshop for install fulfilment (§8.2)', async () => {
     const event = acceptedEvent();
     await reactor.handle(event);
-    const p = event.payload as Record<string, string>;
+    const p = event.payload as unknown as Record<string, string>;
     const row = await pool.query<{ id: string }>(
       `select id from orders.orders where quote_id = $1`,
       [p['quoteId']],

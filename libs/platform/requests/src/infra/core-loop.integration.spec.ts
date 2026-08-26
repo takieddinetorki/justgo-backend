@@ -69,19 +69,13 @@ describePg('core loop: request → fan-out → quote → accept → order', () =
     await relay.tick();
   };
 
-  const makeSuppliers = async (count: number): Promise<SupplierId[]> => {
-    const ids: SupplierId[] = [];
-    for (let i = 0; i < count; i += 1) {
-      const owner = newId<AccountId>();
-      const res = await pool.query<{ id: string }>(
-        `insert into suppliers.suppliers (owner_account_id, vertical_key, name)
-         values ($1, 'part_store', $2) returning id`,
-        [owner, `Test Store ${i}`],
-      );
-      ids.push(res.rows[0].id as SupplierId);
-    }
-    return ids;
-  };
+  /**
+   * Supplier ids are opaque here by design: quotes reference suppliers by id
+   * with NO cross-schema foreign key (§17.2), so this module never needs a
+   * real row in the suppliers schema — and must never read one (§17.4).
+   */
+  const makeSuppliers = async (count: number): Promise<SupplierId[]> =>
+    Array.from({ length: count }, () => newId<SupplierId>());
 
   it('runs the full happy path and creates exactly one order', async () => {
     const client = newId<AccountId>();
@@ -99,7 +93,14 @@ describePg('core loop: request → fan-out → quote → accept → order', () =
     expect(submitted.quotes).toHaveLength(0);
 
     await drain();
-    expect(published.map((e) => e.type)).toContain(REQUEST_SUBMITTED);
+    // the relay drains every unpublished row in the schema, so match on OUR
+    // request id rather than the first RequestSubmitted that shows up
+    const submittedEvent = published.find(
+      (e) =>
+        e.type === REQUEST_SUBMITTED &&
+        (e.payload as { requestId: string }).requestId === submitted.id,
+    );
+    expect(submittedEvent).toBeDefined();
 
     // 2. fan-out via the capability-driven reactor
     const registry = new VerticalRegistry([partStore]);
@@ -107,7 +108,7 @@ describePg('core loop: request → fan-out → quote → accept → order', () =
       targetsFor: async () => [supplierA, supplierB, supplierC] as string[],
     };
     const reactor = new FanOutReactor(bus, requests, registry, targeting);
-    await reactor.handle(published.find((e) => e.type === REQUEST_SUBMITTED) as DomainEvent);
+    await reactor.handle(submittedEvent as DomainEvent);
 
     let detail = await requests.getForClient(client, submitted.id);
     expect(detail.quotes).toHaveLength(3);
@@ -143,7 +144,11 @@ describePg('core loop: request → fan-out → quote → accept → order', () =
 
     // 6. QuoteAccepted reaches the bus for the orders reactor
     await drain();
-    const acceptedEvents = published.filter((e) => e.type === QUOTE_ACCEPTED);
+    const acceptedEvents = published.filter(
+      (e) =>
+        e.type === QUOTE_ACCEPTED &&
+        (e.payload as { requestId: string }).requestId === submitted.id,
+    );
     expect(acceptedEvents).toHaveLength(1);
     expect(acceptedEvents[0].payload).toMatchObject({
       quoteId: quoteB.id,
