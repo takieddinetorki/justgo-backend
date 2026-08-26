@@ -29,5 +29,8 @@
       "scope:platform",
       "type:impl"
     ]
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
   }
 }
