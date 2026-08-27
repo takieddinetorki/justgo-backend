@@ -27,6 +27,9 @@
   ],
   "references": [
     {
+      "path": "../../libs/platform/discovery/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/platform/vehicles/tsconfig.lib.json"
     },
     {

@@ -31,7 +31,9 @@ export class SuppliersService implements SuppliersPort {
         { supplierId: existing.id },
       );
     }
-    return this.repo.insert(ownerAccountId, input);
+    const vertical = this.verticals.byKey(input.verticalKey);
+    const categoryKeys = vertical.catalogueSpec?.().categoryKeys ?? [];
+    return this.repo.insert(ownerAccountId, input, { categoryKeys });
   }
 
   async getById(id: SupplierId): Promise<SupplierDTO | null> {

@@ -116,7 +116,8 @@
     "swagger-ui-express": "^5.0.1",
     "tslib": "^2.3.0",
     "zod": "^4.4.3",
-    "@justgo/vehicles": "workspace:*"
+    "@justgo/vehicles": "workspace:*",
+    "@justgo/discovery": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",

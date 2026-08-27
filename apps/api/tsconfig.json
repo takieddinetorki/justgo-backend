@@ -4,6 +4,9 @@
   "include": [],
   "references": [
     {
+      "path": "../../libs/platform/discovery"
+    },
+    {
       "path": "../../libs/platform/vehicles"
     },
     {

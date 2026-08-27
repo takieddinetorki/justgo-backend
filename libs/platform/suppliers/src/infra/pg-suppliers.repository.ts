@@ -40,7 +40,11 @@ export class PgSuppliersRepository {
     this.outbox = new PgOutboxStore(pool, 'suppliers');
   }
 
-  async insert(ownerAccountId: AccountId, input: RegisterSupplierDTO): Promise<SupplierDTO> {
+  async insert(
+    ownerAccountId: AccountId,
+    input: RegisterSupplierDTO,
+    enrich: { categoryKeys: string[] } = { categoryKeys: [] },
+  ): Promise<SupplierDTO> {
     const client = await this.pool.connect();
     try {
       await client.query('begin');
@@ -74,6 +78,9 @@ export class PgSuppliersRepository {
             ownerAccountId,
             verticalKey: supplier.verticalKey,
             name: supplier.name,
+            lat: input.lat ?? null,
+            lng: input.lng ?? null,
+            categoryKeys: enrich.categoryKeys,
           },
         }),
       ]);

@@ -8,6 +8,7 @@ import { SuppliersModule } from '@justgo/suppliers';
 import { RequestsModule } from '@justgo/requests';
 import { OrdersModule } from '@justgo/orders';
 import { VehiclesModule } from '@justgo/vehicles';
+import { DiscoveryModule } from '@justgo/discovery';
 import { RealtimeModule } from '@justgo/realtime';
 import { NotificationsModule } from '@justgo/notifications';
 import { TecDocModule } from '@justgo/tecdoc';
@@ -61,7 +62,7 @@ const config = loadConfig();
       apiKey: config.SUPABASE_SERVICE_KEY,
     }),
     ...(config.DATABASE_URL
-      ? [IdentityModule, SuppliersModule, RequestsModule, OrdersModule, NotificationsModule, VehiclesModule]
+      ? [IdentityModule, SuppliersModule, RequestsModule, OrdersModule, NotificationsModule, VehiclesModule, DiscoveryModule]
       : []),
   ],
   controllers: [HealthController],
