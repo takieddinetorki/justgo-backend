@@ -59,6 +59,12 @@
     },
     {
       "path": "./libs/platform/discovery"
+    },
+    {
+      "path": "./libs/crosscutting/media"
+    },
+    {
+      "path": "./libs/verticals/wholesaler"
     }
   ]
 }

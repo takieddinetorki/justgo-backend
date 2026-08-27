@@ -27,6 +27,12 @@
   ],
   "references": [
     {
+      "path": "../../libs/verticals/wholesaler/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/crosscutting/media/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/platform/discovery/tsconfig.lib.json"
     },
     {

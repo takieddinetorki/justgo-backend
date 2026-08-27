@@ -4,6 +4,12 @@
   "include": [],
   "references": [
     {
+      "path": "../../libs/verticals/wholesaler"
+    },
+    {
+      "path": "../../libs/crosscutting/media"
+    },
+    {
       "path": "../../libs/platform/discovery"
     },
     {

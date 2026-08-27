@@ -9,6 +9,7 @@ import { RequestsModule } from '@justgo/requests';
 import { OrdersModule } from '@justgo/orders';
 import { VehiclesModule } from '@justgo/vehicles';
 import { DiscoveryModule } from '@justgo/discovery';
+import { MediaModule } from '@justgo/media';
 import { RealtimeModule } from '@justgo/realtime';
 import { NotificationsModule } from '@justgo/notifications';
 import { TecDocModule } from '@justgo/tecdoc';
@@ -57,6 +58,10 @@ const config = loadConfig();
       redisUrl: config.REDIS_URL,
     }),
     CatalogueModule,
+    MediaModule.forRoot({
+      supabaseUrl: config.SUPABASE_URL,
+      serviceKey: config.SUPABASE_SERVICE_KEY,
+    }),
     RealtimeModule.forRoot({
       supabaseUrl: config.SUPABASE_URL,
       apiKey: config.SUPABASE_SERVICE_KEY,

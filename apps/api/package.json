@@ -117,7 +117,9 @@
     "tslib": "^2.3.0",
     "zod": "^4.4.3",
     "@justgo/vehicles": "workspace:*",
-    "@justgo/discovery": "workspace:*"
+    "@justgo/discovery": "workspace:*",
+    "@justgo/media": "workspace:*",
+    "@justgo/vertical-wholesaler": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",
