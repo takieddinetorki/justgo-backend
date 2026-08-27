@@ -48,7 +48,12 @@ const config = loadConfig();
           : undefined,
     }),
     ContractsModule.forRoot(ENABLED_VERTICALS),
-    TecDocModule.forRoot(),
+    TecDocModule.forRoot({
+      baseUrl: config.TECDOC_BASE_URL,
+      apiKey: config.TECDOC_API_KEY,
+      providerId: config.TECDOC_PROVIDER_ID,
+      redisUrl: config.REDIS_URL,
+    }),
     CatalogueModule,
     RealtimeModule.forRoot({
       supabaseUrl: config.SUPABASE_URL,

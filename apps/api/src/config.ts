@@ -9,6 +9,9 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: z.string().url().optional(),
   REDIS_URL: z.string().url().optional(),
+  TECDOC_BASE_URL: z.string().url().optional(),
+  TECDOC_API_KEY: z.string().optional(),
+  TECDOC_PROVIDER_ID: z.string().optional(),
   SUPABASE_URL: z.string().url().optional(),
   /** service_role key — used server-side for Realtime broadcast. */
   SUPABASE_SERVICE_KEY: z.string().optional(),
