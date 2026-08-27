@@ -4,13 +4,19 @@
   "include": [],
   "references": [
     {
-      "path": "../../libs/platform/catalogue"
+      "path": "../../libs/platform/vehicles"
+    },
+    {
+      "path": "../../libs/verticals/part-store"
     },
     {
       "path": "../../libs/integrations/tecdoc"
     },
     {
-      "path": "../../libs/crosscutting/notifications"
+      "path": "../../libs/platform/suppliers"
+    },
+    {
+      "path": "../../libs/platform/requests"
     },
     {
       "path": "../../libs/crosscutting/realtime"
@@ -19,25 +25,22 @@
       "path": "../../libs/platform/orders"
     },
     {
-      "path": "../../libs/platform/requests"
-    },
-    {
-      "path": "../../libs/verticals/part-store"
-    },
-    {
-      "path": "../../libs/platform/suppliers"
-    },
-    {
-      "path": "../../libs/platform/identity"
+      "path": "../../libs/crosscutting/notifications"
     },
     {
       "path": "../../libs/shared/kernel"
+    },
+    {
+      "path": "../../libs/platform/identity"
     },
     {
       "path": "../../libs/shared/events"
     },
     {
       "path": "../../libs/shared/contracts"
+    },
+    {
+      "path": "../../libs/platform/catalogue"
     },
     {
       "path": "../../libs/shared/auth"

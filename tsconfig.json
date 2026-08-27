@@ -53,6 +53,9 @@
     },
     {
       "path": "./libs/platform/catalogue"
+    },
+    {
+      "path": "./libs/platform/vehicles"
     }
   ]
 }

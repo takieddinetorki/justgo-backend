@@ -115,7 +115,8 @@
     "rxjs": "^7.8.0",
     "swagger-ui-express": "^5.0.1",
     "tslib": "^2.3.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@justgo/vehicles": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",
