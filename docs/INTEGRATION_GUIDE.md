@@ -208,7 +208,8 @@ always reconcile against those on reconnect/foreground.
 
 ## 6. Endpoint reference
 
-All endpoints require `Authorization: Bearer <jwt>` except `GET /v1/health`.
+All endpoints require `Authorization: Bearer <jwt>` except the public ones:
+`GET /v1/health` and `GET /v1/discovery/suppliers`.
 
 ### Me
 - **`GET /v1/me`** → `Account`. Self-provisions on first call.
@@ -219,6 +220,55 @@ All endpoints require `Authorization: Bearer <jwt>` except `GET /v1/health`.
 { "id":"uuid","authUserId":"uuid","firstName":null,"familyName":null,
   "email":"user@example.com","phone":null,"locale":"en",
   "roles":["client"],"createdAt":"2026-08-26T17:00:00.000Z" }
+```
+
+### Client · Garage (vehicles) — Phase 2
+All require the `vehicle.manage` permission (client/fleet roles).
+- **`GET /v1/vehicles`** → `{ items: Vehicle[] }`.
+- **`POST /v1/vehicles`** body:
+  ```json
+  { "brand":"Renault","model":"Clio","year":2015,"name":"Daily",
+    "vin":null,"plate":"AB-123-CD","mileageKm":90000,"photoUrl":null,
+    "resolveTecDoc":true }
+  ```
+  Needs at least one of `name` / `brand` / `vin` (else `422 VEHICLE_UNDESCRIBED`).
+  When `resolveTecDoc` isn't `false` and `brand` is present, the backend resolves
+  the **KType** via TecDoc and stores the reference IDs. Resolution is best-effort —
+  a TecDoc outage never blocks adding a car; you just get `tecdocVehicleTypeId:null`.
+  → `Vehicle`.
+- **`GET /v1/vehicles/{id}`** → `Vehicle` (404 if not yours).
+- **`PATCH /v1/vehicles/{id}`** body `{ name?, plate?, photoUrl?, healthStatus? }` → `Vehicle`.
+- **`DELETE /v1/vehicles/{id}`** → `{ deleted:true }` (cascades tasks + health).
+- **`PATCH /v1/vehicles/{id}/mileage`** body `{ mileageKm }` → `Vehicle`.
+- **`GET /v1/vehicles/{id}/maintenance`** → `{ items: MaintenanceTask[] }`.
+- **`POST /v1/vehicles/{id}/maintenance`** body
+  `{ title, intervalKm?, intervalMonths?, dueAtKm?, dueDate? }` → `MaintenanceTask`.
+  Tasks flip to `due` automatically (odometer or date) and raise a `maintenance.due`
+  notification.
+- **`GET /v1/vehicles/{id}/health`** → `{ items: HealthEntry[] }`.
+- **`POST /v1/vehicles/scan`** — see **Media & scan** below.
+
+`Vehicle`:
+```json
+{ "id":"uuid","ownerAccountId":"uuid","name":"Daily","brand":"Renault",
+  "model":"Clio","year":2015,"vin":null,"plate":"AB-123-CD","mileageKm":90000,
+  "tecdocVehicleTypeId":12345,"tecdocManufacturerId":11,"tecdocModelId":22,
+  "healthStatus":"good","photoUrl":null,"createdAt":"…" }
+```
+`healthStatus` ∈ `optimal | good | warning | critical | urgent`.
+`MaintenanceTask.status` ∈ `pending | due | done | dismissed`.
+
+### Client · Discovery — Phase 2 (public)
+- **`GET /v1/discovery/suppliers?lat=&lng=&radius=&vertical=&category=&limit=`** →
+  `{ items: NearbySupplier[] }`, nearest first.
+  - `lat`/`lng` required; `radius` in **metres** (default 10 000, max 100 000);
+    `vertical` and `category` optional filters; `limit` ≤ 100.
+  - Public — no token needed. Returns only **open** suppliers.
+
+`NearbySupplier`:
+```json
+{ "supplierId":"uuid","verticalKey":"part_store","name":"AutoParts Paris",
+  "categoryKeys":["braking","engine"],"distanceM":842 }
 ```
 
 ### Client · Requests
@@ -316,9 +366,26 @@ Notification `type` values you'll see: `welcome`, `request.received`,
 - **`GET /v1/catalogue/cross-refs?oe=` or `?articleId=`** → `{ items: ArticleRef[] }`
   (equivalents — powers "Find Best Alternative").
 
-> Phase-1 catalogue returns fixture data with a handful of vehicles (VW Golf VII,
-> Renault Clio IV, Peugeot 208) and articles. Phase 2 swaps in the live TecDoc
-> adapter behind the same shapes — no client changes.
+> The catalogue is served by the TecDoc anti-corruption adapter. When
+> `TECDOC_BASE_URL` + `TECDOC_API_KEY` are configured the backend uses the **live
+> TecDoc adapter** (circuit breaker + short-TTL Redis cache, degrading to
+> fixtures on outage); otherwise it serves the **fixture stub** (VW Golf VII,
+> Renault Clio IV, Peugeot 208). The response shapes are identical either way —
+> no client changes.
+
+### Media & scan — Phase 2
+Uploads never stream through the API — you get a short-lived pre-signed URL and
+`PUT` the bytes straight to storage.
+- **`POST /v1/media/uploads`** body
+  `{ bucket:"registrations|vehicle-photos|part-photos|avatars", filename, contentType? }`
+  → `{ uploadUrl, path, token, expiresInSeconds }`. `PUT` the file to `uploadUrl`,
+  then persist the returned `path` (e.g. as a vehicle `photoUrl`, or feed it to scan).
+- **`POST /v1/vehicles/scan`** body `{ bucket:"registrations", path }` →
+  `{ draft: { vin, brand, model, plate, year, confidence } }`.
+  OCR of a registration document. The result is a **draft only** — show it for
+  confirmation, then create the vehicle via `POST /v1/vehicles`. Never auto-commit;
+  `confidence` (0..1) is low in the current stub. `path` must be within your own
+  upload namespace (it is, if it came from `POST /v1/media/uploads`).
 
 ---
 
@@ -333,6 +400,9 @@ never reopen.
 
 **Order status:** `created → confirmed → in_progress → completed`; any live state
 `→ cancelled`.
+
+**Vehicle health:** `optimal | good | warning | critical | urgent` (worst wins).
+**Maintenance task:** `pending → due → (done | dismissed)`.
 
 Illegal transitions return **409** — surface them as "this changed, refresh"
 rather than hard errors.

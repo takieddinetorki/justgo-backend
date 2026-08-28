@@ -18,6 +18,7 @@ import { loadConfig } from '../config';
 import { HealthController } from './health.controller';
 import { ENABLED_VERTICALS } from './verticals';
 import { SupplierTargetingAdapter } from './supplier-targeting.adapter';
+import { SchedulerRunner } from './scheduler.runner';
 
 const config = loadConfig();
 
@@ -77,6 +78,7 @@ const config = loadConfig();
       ? [
           SupplierTargetingAdapter,
           { provide: SUPPLIER_TARGETING_PORT, useExisting: SupplierTargetingAdapter },
+          SchedulerRunner,
         ]
       : []),
   ],

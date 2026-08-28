@@ -1,19 +1,4 @@
-// PUBLIC surface: the module + resilience building blocks used at composition.
+// PUBLIC surface: the module wiring only (§5). The adapter, transport,
+// circuit breaker, cache and resilience decorator are private infra —
+// TecDocModule.forRoot() composes them; nothing else imports them.
 export { TecDocModule, type TecDocModuleOptions } from './tecdoc.module';
-export { CircuitBreaker, CircuitOpenError, type BreakerState } from './infra/circuit-breaker';
-export {
-  FetchHttpTransport,
-  TecDocHttpError,
-  type HttpTransport,
-  type TecDocHttpRequest,
-} from './infra/http-transport';
-export { HttpTecDocAdapter } from './infra/http-tecdoc.adapter';
-export {
-  ResilientCatalogue,
-  type ResilientCatalogueOptions,
-} from './infra/resilient-catalogue';
-export {
-  InMemoryCatalogueCache,
-  RedisCatalogueCache,
-  type CatalogueCache,
-} from './infra/catalogue-cache';

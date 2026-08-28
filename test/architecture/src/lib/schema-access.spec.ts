@@ -17,6 +17,28 @@ const SQL_REF_RE =
 
 const MODULE_ROOTS = ['libs/platform/', 'libs/verticals/', 'libs/crosscutting/'];
 
+/**
+ * All real SQL in this codebase lives in backtick template literals passed to
+ * `.query(...)`. Scanning only those spans keeps the matcher from tripping on
+ * event-type strings ('suppliers.SupplierRegistered'), comments, or test
+ * descriptions ("builds the index from suppliers.SupplierRegistered") that
+ * merely read like SQL. Extract each backtick span's contents.
+ */
+function sqlSpans(source: string): string[] {
+  return [...source.matchAll(/`([^`]*)`/gs)].map((m) => m[1]);
+}
+
+/** All cross-schema-shaped references found in a file's SQL spans. */
+export function schemaTableRefs(source: string): { schema: string; table: string }[] {
+  const refs: { schema: string; table: string }[] = [];
+  for (const span of sqlSpans(source)) {
+    for (const match of span.matchAll(SQL_REF_RE)) {
+      refs.push({ schema: match[1], table: match[2] });
+    }
+  }
+  return refs;
+}
+
 describe('architecture: schema ownership', () => {
   const modules = workspacePackages().filter((p) =>
     MODULE_ROOTS.some((root) => relToRoot(p.dir).startsWith(root)),
@@ -34,8 +56,7 @@ describe('architecture: schema ownership', () => {
       const ownSchema = relToRoot(mod.dir).split('/').pop()?.replace(/-/g, '_');
       for (const file of sourceFiles(mod.dir)) {
         const source = readFileSync(file, 'utf8');
-        for (const match of source.matchAll(SQL_REF_RE)) {
-          const [, schema, table] = match;
+        for (const { schema, table } of schemaTableRefs(source)) {
           if (schema === ownSchema || !knownSchemas.has(schema)) continue;
           if (SHARED_TABLE_NAMES.includes(table) && schema === ownSchema) continue;
           violations.push(
@@ -47,12 +68,21 @@ describe('architecture: schema ownership', () => {
     expect(violations).toEqual([]);
   });
 
-  it('is armed (sanity check on the SQL matcher)', () => {
-    const hits = [
-      ...'select * from requests.quotes q join orders.orders o on q.id = o.quote_id'.matchAll(
-        SQL_REF_RE,
-      ),
-    ];
-    expect(hits.map((h) => `${h[1]}.${h[2]}`)).toEqual(['requests.quotes', 'orders.orders']);
+  it('is armed: catches real cross-schema SQL', () => {
+    const src = 'const q = `select * from requests.quotes q join orders.orders o on q.id = o.quote_id`;';
+    expect(schemaTableRefs(src).map((r) => `${r.schema}.${r.table}`)).toEqual([
+      'requests.quotes',
+      'orders.orders',
+    ]);
+  });
+
+  it('ignores SQL-looking text outside backtick queries', () => {
+    // event-type strings and prose must not count as SQL references
+    const src = [
+      "const type = 'suppliers.SupplierRegistered';",
+      "// builds the index from suppliers.SupplierRegistered",
+      "it('reads from orders.orders', () => {});",
+    ].join('\n');
+    expect(schemaTableRefs(src)).toEqual([]);
   });
 });
