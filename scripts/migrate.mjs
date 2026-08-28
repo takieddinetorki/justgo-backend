@@ -11,9 +11,18 @@
  * the runner has no dependency on managed Supabase (ours is self-hosted).
  */
 import { readdir, readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import pg from 'pg';
+
+// Load the repo-root .env (relative to this script, not the cwd) so
+// `pnpm migrate` works from any directory and any shell. Real env vars
+// already set (e.g. in CI) win — we only fill DATABASE_URL when it's missing.
+const ENV_FILE = fileURLToPath(new URL('../.env', import.meta.url));
+if (!process.env.DATABASE_URL && existsSync(ENV_FILE)) {
+  process.loadEnvFile(ENV_FILE);
+}
 
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../db/migrations');
 
