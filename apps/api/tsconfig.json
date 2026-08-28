@@ -4,6 +4,18 @@
   "include": [],
   "references": [
     {
+      "path": "../../libs/verticals/diagnostics"
+    },
+    {
+      "path": "../../libs/verticals/body-paint"
+    },
+    {
+      "path": "../../libs/verticals/workshop"
+    },
+    {
+      "path": "../../libs/platform/reservations"
+    },
+    {
       "path": "../../libs/verticals/wholesaler"
     },
     {

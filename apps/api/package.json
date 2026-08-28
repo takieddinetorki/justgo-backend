@@ -119,7 +119,11 @@
     "@justgo/vehicles": "workspace:*",
     "@justgo/discovery": "workspace:*",
     "@justgo/media": "workspace:*",
-    "@justgo/vertical-wholesaler": "workspace:*"
+    "@justgo/vertical-wholesaler": "workspace:*",
+    "@justgo/reservations": "workspace:*",
+    "@justgo/vertical-workshop": "workspace:*",
+    "@justgo/vertical-body-paint": "workspace:*",
+    "@justgo/vertical-diagnostics": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",

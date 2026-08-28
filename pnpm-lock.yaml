@@ -168,6 +168,9 @@ importers:
       '@justgo/requests':
         specifier: workspace:*
         version: link:../../libs/platform/requests
+      '@justgo/reservations':
+        specifier: workspace:*
+        version: link:../../libs/platform/reservations
       '@justgo/suppliers':
         specifier: workspace:*
         version: link:../../libs/platform/suppliers
@@ -177,12 +180,21 @@ importers:
       '@justgo/vehicles':
         specifier: workspace:*
         version: link:../../libs/platform/vehicles
+      '@justgo/vertical-body-paint':
+        specifier: workspace:*
+        version: link:../../libs/verticals/body-paint
+      '@justgo/vertical-diagnostics':
+        specifier: workspace:*
+        version: link:../../libs/verticals/diagnostics
       '@justgo/vertical-part-store':
         specifier: workspace:*
         version: link:../../libs/verticals/part-store
       '@justgo/vertical-wholesaler':
         specifier: workspace:*
         version: link:../../libs/verticals/wholesaler
+      '@justgo/vertical-workshop':
+        specifier: workspace:*
+        version: link:../../libs/verticals/workshop
       '@nestjs/common':
         specifier: ^11.0.0
         version: 11.1.28(reflect-metadata@0.1.14)(rxjs@7.8.1)
@@ -386,12 +398,19 @@ importers:
       '@nestjs/common':
         specifier: ^11.0.0
         version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      pg:
+        specifier: ^8.23.0
+        version: 8.23.0
       tslib:
         specifier: ^2.3.0
         version: 2.8.1
       zod:
         specifier: ^4.1.13
         version: 4.4.3
+    devDependencies:
+      '@types/pg':
+        specifier: 8.20.0
+        version: 8.20.0
 
   libs/platform/discovery:
     dependencies:
@@ -481,6 +500,37 @@ importers:
         version: 8.20.0
 
   libs/platform/requests:
+    dependencies:
+      '@justgo/auth':
+        specifier: workspace:*
+        version: link:../../shared/auth
+      '@justgo/contracts':
+        specifier: workspace:*
+        version: link:../../shared/contracts
+      '@justgo/events':
+        specifier: workspace:*
+        version: link:../../shared/events
+      '@justgo/kernel':
+        specifier: workspace:*
+        version: link:../../shared/kernel
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      pg:
+        specifier: ^8.16.3
+        version: 8.22.0
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+      zod:
+        specifier: ^4.1.13
+        version: 4.4.3
+    devDependencies:
+      '@types/pg':
+        specifier: 8.20.0
+        version: 8.20.0
+
+  libs/platform/reservations:
     dependencies:
       '@justgo/auth':
         specifier: workspace:*
@@ -631,6 +681,38 @@ importers:
         specifier: ^2.3.0
         version: 2.8.1
 
+  libs/verticals/body-paint:
+    dependencies:
+      '@justgo/contracts':
+        specifier: workspace:*
+        version: link:../../shared/contracts
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@justgo/kernel':
+        specifier: workspace:*
+        version: link:../../shared/kernel
+
+  libs/verticals/diagnostics:
+    dependencies:
+      '@justgo/contracts':
+        specifier: workspace:*
+        version: link:../../shared/contracts
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@justgo/kernel':
+        specifier: workspace:*
+        version: link:../../shared/kernel
+
   libs/verticals/part-store:
     dependencies:
       '@justgo/contracts':
@@ -651,6 +733,22 @@ importers:
         version: 11.1.28(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1))(@nestjs/core@11.1.28)(@nestjs/platform-express@11.1.28)
 
   libs/verticals/wholesaler:
+    dependencies:
+      '@justgo/contracts':
+        specifier: workspace:*
+        version: link:../../shared/contracts
+      '@nestjs/common':
+        specifier: ^11.0.0
+        version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.1)
+      tslib:
+        specifier: ^2.3.0
+        version: 2.8.1
+    devDependencies:
+      '@justgo/kernel':
+        specifier: workspace:*
+        version: link:../../shared/kernel
+
+  libs/verticals/workshop:
     dependencies:
       '@justgo/contracts':
         specifier: workspace:*
@@ -5436,12 +5534,24 @@ packages:
   pg-protocol@1.15.0:
     resolution: {integrity: sha512-cq9sECI5s0+uPUXjbz8ioyPJni6RzsRib0US67i5IoTZKw8fNeYlVE7u8F4dG7vEJJtc5wdD1K189lCCUwqWTQ==}
 
+  pg-protocol@1.16.0:
+    resolution: {integrity: sha512-sILXutLVjCLjcDuOmvhX5e2Z4cS5qG/6Bu3VkpFwdf/633ElGLpEh9bgmuI5I4sqKqkifQiGyiCcx1HdtrK7tg==}
+
   pg-types@2.2.0:
     resolution: {integrity: sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA==}
     engines: {node: '>=4'}
 
   pg@8.22.0:
     resolution: {integrity: sha512-8wih1vVIBMxoUM2oB4soJsD9tDnDpLv4OXBJ+EJzFsvycD+lfyIreC2gGHq78f8jbLLt+bvlPTFdFZfJkOuzAA==}
+    engines: {node: '>= 16.0.0'}
+    peerDependencies:
+      pg-native: '>=3.0.1'
+    peerDependenciesMeta:
+      pg-native:
+        optional: true
+
+  pg@8.23.0:
+    resolution: {integrity: sha512-Ip2EQCngowJLGOfCwkFhPXU7/ljlhn6Rxlmy4XYfL2Y+vyRM59+8uR2xqRWKdYmbXmxCFOAmKxBuSUCdF34qLg==}
     engines: {node: '>= 16.0.0'}
     peerDependencies:
       pg-native: '>=3.0.1'
@@ -9854,7 +9964,7 @@ snapshots:
   '@types/pg@8.20.0':
     dependencies:
       '@types/node': 20.19.9
-      pg-protocol: 1.15.0
+      pg-protocol: 1.16.0
       pg-types: 2.2.0
 
   '@types/qs@6.15.1': {}
@@ -12767,7 +12877,13 @@ snapshots:
     dependencies:
       pg: 8.22.0
 
+  pg-pool@3.14.0(pg@8.23.0):
+    dependencies:
+      pg: 8.23.0
+
   pg-protocol@1.15.0: {}
+
+  pg-protocol@1.16.0: {}
 
   pg-types@2.2.0:
     dependencies:
@@ -12782,6 +12898,16 @@ snapshots:
       pg-connection-string: 2.14.0
       pg-pool: 3.14.0(pg@8.22.0)
       pg-protocol: 1.15.0
+      pg-types: 2.2.0
+      pgpass: 1.0.5
+    optionalDependencies:
+      pg-cloudflare: 1.4.0
+
+  pg@8.23.0:
+    dependencies:
+      pg-connection-string: 2.14.0
+      pg-pool: 3.14.0(pg@8.23.0)
+      pg-protocol: 1.16.0
       pg-types: 2.2.0
       pgpass: 1.0.5
     optionalDependencies:

@@ -27,6 +27,18 @@
   ],
   "references": [
     {
+      "path": "../../libs/verticals/diagnostics/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/verticals/body-paint/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/verticals/workshop/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/platform/reservations/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/verticals/wholesaler/tsconfig.lib.json"
     },
     {

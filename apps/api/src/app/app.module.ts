@@ -14,6 +14,7 @@ import { RealtimeModule } from '@justgo/realtime';
 import { NotificationsModule } from '@justgo/notifications';
 import { TecDocModule } from '@justgo/tecdoc';
 import { CatalogueModule } from '@justgo/catalogue';
+import { ReservationsModule } from '@justgo/reservations';
 import { loadConfig } from '../config';
 import { HealthController } from './health.controller';
 import { ENABLED_VERTICALS } from './verticals';
@@ -58,7 +59,6 @@ const config = loadConfig();
       providerId: config.TECDOC_PROVIDER_ID,
       redisUrl: config.REDIS_URL,
     }),
-    CatalogueModule,
     MediaModule.forRoot({
       supabaseUrl: config.SUPABASE_URL,
       serviceKey: config.SUPABASE_SERVICE_KEY,
@@ -68,7 +68,7 @@ const config = loadConfig();
       apiKey: config.SUPABASE_SERVICE_KEY,
     }),
     ...(config.DATABASE_URL
-      ? [IdentityModule, SuppliersModule, RequestsModule, OrdersModule, NotificationsModule, VehiclesModule, DiscoveryModule]
+      ? [IdentityModule, SuppliersModule, RequestsModule, OrdersModule, NotificationsModule, VehiclesModule, DiscoveryModule, CatalogueModule.forRoot(), ReservationsModule]
       : []),
   ],
   controllers: [HealthController],

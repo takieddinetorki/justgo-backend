@@ -15,11 +15,12 @@
     }
   },
   "dependencies": {
-    "tslib": "^2.3.0",
-    "@justgo/contracts": "workspace:*",
     "@justgo/auth": "workspace:*",
+    "@justgo/contracts": "workspace:*",
     "@justgo/kernel": "workspace:*",
     "@nestjs/common": "^11.0.0",
+    "pg": "^8.23.0",
+    "tslib": "^2.3.0",
     "zod": "^4.1.13"
   },
   "nx": {
@@ -27,5 +28,8 @@
       "scope:platform",
       "type:impl"
     ]
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0"
   }
 }

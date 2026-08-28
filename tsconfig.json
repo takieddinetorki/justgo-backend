@@ -65,6 +65,18 @@
     },
     {
       "path": "./libs/verticals/wholesaler"
+    },
+    {
+      "path": "./libs/platform/reservations"
+    },
+    {
+      "path": "./libs/verticals/workshop"
+    },
+    {
+      "path": "./libs/verticals/body-paint"
+    },
+    {
+      "path": "./libs/verticals/diagnostics"
     }
   ]
 }
