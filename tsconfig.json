@@ -83,6 +83,15 @@
     },
     {
       "path": "./libs/verticals/showroom"
+    },
+    {
+      "path": "./libs/platform/assistance"
+    },
+    {
+      "path": "./libs/verticals/roadside"
+    },
+    {
+      "path": "./libs/verticals/insurance"
     }
   ]
 }

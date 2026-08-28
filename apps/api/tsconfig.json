@@ -4,6 +4,15 @@
   "include": [],
   "references": [
     {
+      "path": "../../libs/verticals/insurance"
+    },
+    {
+      "path": "../../libs/verticals/roadside"
+    },
+    {
+      "path": "../../libs/platform/assistance"
+    },
+    {
       "path": "../../libs/verticals/showroom"
     },
     {

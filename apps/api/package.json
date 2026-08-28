@@ -125,7 +125,10 @@
     "@justgo/vertical-body-paint": "workspace:*",
     "@justgo/vertical-diagnostics": "workspace:*",
     "@justgo/marketplace": "workspace:*",
-    "@justgo/vertical-showroom": "workspace:*"
+    "@justgo/vertical-showroom": "workspace:*",
+    "@justgo/assistance": "workspace:*",
+    "@justgo/vertical-roadside": "workspace:*",
+    "@justgo/vertical-insurance": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",

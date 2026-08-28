@@ -27,6 +27,15 @@
   ],
   "references": [
     {
+      "path": "../../libs/verticals/insurance/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/verticals/roadside/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/platform/assistance/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/verticals/showroom/tsconfig.lib.json"
     },
     {

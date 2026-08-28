@@ -5,6 +5,8 @@ import { WorkshopVertical } from '@justgo/vertical-workshop';
 import { BodyPaintVertical } from '@justgo/vertical-body-paint';
 import { DiagnosticsVertical } from '@justgo/vertical-diagnostics';
 import { ShowroomVertical } from '@justgo/vertical-showroom';
+import { RoadsideVertical } from '@justgo/vertical-roadside';
+import { InsuranceVertical } from '@justgo/vertical-insurance';
 
 /**
  * The app's verticals MANIFEST — the only place plug-ins are named (§9).
@@ -18,4 +20,6 @@ export const ENABLED_VERTICALS: SupplierVertical[] = [
   new BodyPaintVertical(),
   new DiagnosticsVertical(),
   new ShowroomVertical(),
+  new RoadsideVertical(),
+  new InsuranceVertical(),
 ];

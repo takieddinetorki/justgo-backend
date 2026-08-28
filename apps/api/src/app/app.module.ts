@@ -16,6 +16,7 @@ import { TecDocModule } from '@justgo/tecdoc';
 import { CatalogueModule } from '@justgo/catalogue';
 import { ReservationsModule } from '@justgo/reservations';
 import { MarketplaceModule } from '@justgo/marketplace';
+import { AssistanceModule } from '@justgo/assistance';
 import { loadConfig } from '../config';
 import { HealthController } from './health.controller';
 import { ENABLED_VERTICALS } from './verticals';
@@ -69,7 +70,7 @@ const config = loadConfig();
       apiKey: config.SUPABASE_SERVICE_KEY,
     }),
     ...(config.DATABASE_URL
-      ? [IdentityModule, SuppliersModule, RequestsModule, OrdersModule, NotificationsModule, VehiclesModule, DiscoveryModule, CatalogueModule.forRoot(), ReservationsModule, MarketplaceModule]
+      ? [IdentityModule, SuppliersModule, RequestsModule, OrdersModule, NotificationsModule, VehiclesModule, DiscoveryModule, CatalogueModule.forRoot(), ReservationsModule, MarketplaceModule, AssistanceModule]
       : []),
   ],
   controllers: [HealthController],
