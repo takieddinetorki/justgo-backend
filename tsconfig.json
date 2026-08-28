@@ -77,6 +77,12 @@
     },
     {
       "path": "./libs/verticals/diagnostics"
+    },
+    {
+      "path": "./libs/platform/marketplace"
+    },
+    {
+      "path": "./libs/verticals/showroom"
     }
   ]
 }

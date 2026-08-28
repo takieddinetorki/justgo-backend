@@ -123,7 +123,9 @@
     "@justgo/reservations": "workspace:*",
     "@justgo/vertical-workshop": "workspace:*",
     "@justgo/vertical-body-paint": "workspace:*",
-    "@justgo/vertical-diagnostics": "workspace:*"
+    "@justgo/vertical-diagnostics": "workspace:*",
+    "@justgo/marketplace": "workspace:*",
+    "@justgo/vertical-showroom": "workspace:*"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.0.0",

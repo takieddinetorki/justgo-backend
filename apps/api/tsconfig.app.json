@@ -27,6 +27,12 @@
   ],
   "references": [
     {
+      "path": "../../libs/verticals/showroom/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/platform/marketplace/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/verticals/diagnostics/tsconfig.lib.json"
     },
     {

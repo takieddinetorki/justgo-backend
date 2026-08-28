@@ -4,6 +4,7 @@ import { WholesalerVertical } from '@justgo/vertical-wholesaler';
 import { WorkshopVertical } from '@justgo/vertical-workshop';
 import { BodyPaintVertical } from '@justgo/vertical-body-paint';
 import { DiagnosticsVertical } from '@justgo/vertical-diagnostics';
+import { ShowroomVertical } from '@justgo/vertical-showroom';
 
 /**
  * The app's verticals MANIFEST — the only place plug-ins are named (§9).
@@ -16,4 +17,5 @@ export const ENABLED_VERTICALS: SupplierVertical[] = [
   new WorkshopVertical(),
   new BodyPaintVertical(),
   new DiagnosticsVertical(),
+  new ShowroomVertical(),
 ];
