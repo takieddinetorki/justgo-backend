@@ -340,6 +340,75 @@ closed → 409 `REQUEST_CLOSED`.
   "status":"created","createdAt":"…" }
 ```
 
+### Client · Reservations (bookable services) — Phase 3
+Bookable-service verticals: `workshop`, `body_paint`, `diagnostics`. Discover
+their service types via **`GET /v1/catalogue/service-types?vertical=workshop`**
+(public) → `{ items: ServiceType[] }`.
+- **`POST /v1/reservations`** body
+  `{ supplierId, serviceTypeKey, slotStart, slotEnd, vehicleId?, branchId?, note? }`
+  → `Reservation` (status `pending`). `slotStart`/`slotEnd` are UTC ISO; the slot
+  must be in the future. A service type whose `requiresVehicle` is true needs
+  `vehicleId` (else 422 `VEHICLE_REQUIRED`). Booking a taken slot → **409 SLOT_TAKEN**.
+- **`GET /v1/reservations?limit=`** → `{ items: Reservation[] }`.
+- **`DELETE /v1/reservations/{id}`** → `Reservation` (status `cancelled`).
+
+`Reservation`:
+```json
+{ "id":"uuid","clientAccountId":"uuid","supplierId":"uuid","branchId":null,
+  "serviceTypeKey":"oil_change","vehicleId":"uuid","slotStart":"…","slotEnd":"…",
+  "status":"pending","note":null,"createdAt":"…" }
+```
+Status: `pending → accepted | rejected | rescheduled`; `accepted → completed | cancelled`.
+
+### Client · Assistance (roadside) — Phase 3
+- **`POST /v1/assistance`** body
+  `{ serviceType:"breakdown|tow|battery|tyre|fuel|lockout", lat, lng, vehicleId?, description?, pickupAddress? }`
+  → `AssistanceRequest` (status `requested`).
+- **`GET /v1/assistance?limit=`** → `{ items: AssistanceRequest[] }`.
+- **`DELETE /v1/assistance/{id}`** → `AssistanceRequest` (status `cancelled`).
+
+`AssistanceRequest` status: `requested → dispatched → en_route → completed`; any
+live state `→ cancelled`. (Which supplier is offered a job — dispatch matching —
+is not yet finalised; the request/status flow is live.)
+
+### Client · Marketplace (used cars) — Phase 3
+- **`GET /v1/marketplace/listings?brand=&maxAmountMinor=&limit=`** → `{ items: Listing[] }`
+  (public; published listings only).
+- **`GET /v1/marketplace/listings/{id}`** → `Listing` (public).
+- **`POST /v1/marketplace/listings`** body
+  `{ title, brand?, model?, year?, mileageKm?, amount?, description?, photoUrls?, city?, country?, lat?, lng? }`
+  → `Listing` (auto-published in beta). Needs `listing.publish`.
+- **`POST /v1/marketplace/listings/{id}/contact`** body `{ message? }` →
+  `{ contacted:true }` (one contact per buyer per listing; can't contact your own).
+  Needs `listing.contact`.
+
+`Listing`:
+```json
+{ "id":"uuid","sellerAccountId":"uuid","supplierId":null,"title":"BMW 320d 2016",
+  "brand":"BMW","model":"320d","year":2016,"mileageKm":120000,
+  "amount":{"amountMinor":1500000,"currency":"EUR"},"description":null,
+  "photoUrls":[],"city":"Paris","country":"FR","status":"published","createdAt":"…" }
+```
+
+### Supplier · Calendar (reservations) — Phase 3 (supplier-scoped)
+- **`GET /v1/supplier/reservations?limit=`** → `{ items: Reservation[] }`.
+- **`PATCH /v1/supplier/reservations/{id}`** body
+  `{ action:"accept|reject|reschedule|complete", reason?, slotStart?, slotEnd? }`
+  → `Reservation`. `reschedule` needs `slotStart`+`slotEnd`. Needs `reservation.manage`.
+
+### Supplier · Dispatch (assistance) — Phase 3 (supplier-scoped)
+- **`PATCH /v1/supplier/assistance/{id}`** body `{ action:"accept|en_route|complete" }`
+  → `AssistanceRequest`. `accept` claims the job. Needs `reservation.manage`.
+
+### Supplier · Catalogue (products / offers / deals) — Phase 3 (supplier-scoped)
+All need `supplier.catalog.manage`.
+- **`GET /v1/supplier/products`** → `{ items: Product[] }`; **`POST`** body
+  `{ name, tecdocArticleId?, reference?, categoryKey?, amount?, quantity?, isDeal? }`;
+  **`PATCH /v1/supplier/products/{id}`** (same fields, partial); **`DELETE …/{id}`**.
+- **`GET /v1/supplier/deals`** → `{ items: Product[] }` (products with `isDeal:true`).
+- **`GET /v1/supplier/offers`** → `{ items: ServiceOffer[] }`; **`POST`** body
+  `{ serviceTypeKey, name, description?, amount?, durationMins? }`; **`DELETE …/{id}`**.
+
 ### Notifications
 - **`GET /v1/notifications?limit=`** → `{ items: Notification[], unread: number }`.
   Supplier session → supplier feed; otherwise account feed.
@@ -403,6 +472,16 @@ never reopen.
 
 **Vehicle health:** `optimal | good | warning | critical | urgent` (worst wins).
 **Maintenance task:** `pending → due → (done | dismissed)`.
+
+**Reservation:** `pending → accepted | rejected | rescheduled`;
+`accepted → completed | cancelled`.
+**Assistance:** `requested → dispatched → en_route → completed`; any live `→ cancelled`.
+**Listing:** `draft | published | pending_review | sold | withdrawn`.
+
+**Verticals (8):** `part_store`, `wholesaler` (receive part requests);
+`workshop`, `body_paint`, `diagnostics` (bookable services); `showroom`
+(vehicle listings); `roadside` (dispatch); `insurance` (published offers).
+`GET /v1/catalogue/service-types` lists the bookable service types per vertical.
 
 Illegal transitions return **409** — surface them as "this changed, refresh"
 rather than hard errors.
