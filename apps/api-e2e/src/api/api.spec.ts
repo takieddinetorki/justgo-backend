@@ -34,3 +34,25 @@ describe('OpenAPI (§15 contract of record)', () => {
     );
   });
 });
+
+describe('OpenAPI docs (§15)', () => {
+  it('serves the Swagger UI page and its static assets (self-hosted)', async () => {
+    const page = await axios.get(`/v1/docs`);
+    expect(page.status).toBe(200);
+    expect(page.headers['content-type']).toContain('text/html');
+    expect(page.data).toContain('/v1/docs-assets/swagger-ui-bundle.js');
+
+    // the asset that used to 404 under Express 5 must now serve real JS
+    const bundle = await axios.get(`/v1/docs-assets/swagger-ui-bundle.js`);
+    expect(bundle.status).toBe(200);
+    expect(bundle.headers['content-type']).toContain('javascript');
+    expect(String(bundle.data).length).toBeGreaterThan(1000);
+  });
+
+  it('serves the raw OpenAPI document with the request path', async () => {
+    const spec = await axios.get(`/v1/docs-json`);
+    expect(spec.status).toBe(200);
+    expect(spec.data.openapi).toMatch(/^3\./);
+    expect(spec.data.paths['/v1/requests']).toBeDefined();
+  });
+})

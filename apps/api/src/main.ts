@@ -5,7 +5,8 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './app/app.module';
 import { AllExceptionsFilter } from './app/all-exceptions.filter';
 import { loadConfig } from './config';
-import { setupOpenApi } from './openapi';
+import { buildOpenApiDocument } from './openapi';
+import { setOpenApiDocument } from './docs-document';
 
 async function bootstrap() {
   const config = loadConfig();
@@ -13,7 +14,7 @@ async function bootstrap() {
   app.useLogger(app.get(Logger));
   app.setGlobalPrefix('v1');
   app.useGlobalFilters(new AllExceptionsFilter());
-  setupOpenApi(app);
+  setOpenApiDocument(buildOpenApiDocument(app));
   app.enableShutdownHooks();
   await app.listen(config.PORT);
   app.get(Logger).log(`justgo-api on :${config.PORT} (env ${config.NODE_ENV}) — docs at /v1/docs`);

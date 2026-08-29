@@ -19,6 +19,7 @@ import { MarketplaceModule } from '@justgo/marketplace';
 import { AssistanceModule } from '@justgo/assistance';
 import { loadConfig } from '../config';
 import { HealthController } from './health.controller';
+import { DocsController } from './docs.controller';
 import { ENABLED_VERTICALS } from './verticals';
 import { SupplierTargetingAdapter } from './supplier-targeting.adapter';
 import { SchedulerRunner } from './scheduler.runner';
@@ -73,7 +74,7 @@ const config = loadConfig();
       ? [IdentityModule, SuppliersModule, RequestsModule, OrdersModule, NotificationsModule, VehiclesModule, DiscoveryModule, CatalogueModule.forRoot(), ReservationsModule, MarketplaceModule, AssistanceModule]
       : []),
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, DocsController],
   providers: [
     // binds the requests module's fan-out seam to the suppliers module
     ...(config.DATABASE_URL

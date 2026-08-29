@@ -433,7 +433,7 @@ function enrich(doc: OpenAPIObject): void {
   });
 }
 
-export function setupOpenApi(app: INestApplication): void {
+export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
   const config = new DocumentBuilder()
     .setTitle('JustGo Backend API')
     .setDescription(DESCRIPTION)
@@ -460,9 +460,5 @@ export function setupOpenApi(app: INestApplication): void {
   document.security = [{ 'supabase-jwt': [] }];
   enrich(document);
 
-  SwaggerModule.setup('v1/docs', app, document, {
-    jsonDocumentUrl: 'v1/docs-json',
-    customSiteTitle: 'JustGo API',
-    swaggerOptions: { persistAuthorization: true },
-  });
+  return document;
 }

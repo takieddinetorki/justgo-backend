@@ -1,6 +1,9 @@
 const { NxAppWebpackPlugin } = require('@nx/webpack/app-plugin');
 const { join } = require('path');
 const webpack = require('webpack');
+// Resolved at BUILD time (this config runs in Node, not the bundle) so the
+// swagger-ui-dist static assets can be copied next to the output bundle.
+const swaggerUiDist = require('swagger-ui-dist').getAbsoluteFSPath();
 
 module.exports = {
   resolve: {
@@ -26,7 +29,10 @@ module.exports = {
       compiler: 'swc',
       main: './src/main.ts',
       tsConfig: './tsconfig.app.json',
-      assets: ['./src/assets'],
+      assets: [
+        './src/assets',
+        { glob: '*.{css,js,png}', input: swaggerUiDist, output: 'swagger-ui' },
+      ],
       optimization: false,
       outputHashing: 'none',
       generatePackageJson: true,
