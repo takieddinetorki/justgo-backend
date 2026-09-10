@@ -160,6 +160,94 @@ export class PgIdentityRepository {
     }
   }
 
+  /**
+   * One lookup that accepts either key.
+   *
+   * `owner_account_id` on a supplier, and the `accountId` on events emitted
+   * before session issuance existed, hold whatever the caller's token put
+   * in AuthContext.accountId — which was the Supabase `sub` whenever the
+   * token had no `account_id` claim. Matching on both columns lets old and
+   * new tokens resolve to the same row instead of silently missing.
+   */
+  async findByIdOrAuthUserId(idOrAuthUserId: Uuid): Promise<Account | null> {
+    const res = await this.pool.query<AccountRow>(
+      `${SELECT_ACCOUNT} where a.id = $1 or a.auth_user_id = $1 group by a.id limit 1`,
+      [idOrAuthUserId],
+    );
+    return res.rows[0] ? this.toAccount(res.rows[0]) : null;
+  }
+
+  /**
+   * Supplier scopes come from identity's OWN table — `user_roles` rows with
+   * scope_type 'supplier' or 'branch'. Reading suppliers.suppliers here
+   * would cross a schema boundary (§17.4) and couple issuance to a module
+   * identity does not depend on.
+   *
+   * A branch-scoped row still needs its supplier, which the row cannot give
+   * us; branch scoping therefore stays unresolved until a branch role
+   * carries both. Today only supplier-scoped rows are produced.
+   */
+  async supplierScopesOf(
+    accountId: AccountId,
+  ): Promise<Array<{ supplierId: Uuid; branchId: Uuid | null; roleKey: string }>> {
+    const res = await this.pool.query<{
+      scope_id: string;
+      scope_type: string;
+      key: string;
+    }>(
+      `select ur.scope_id, ur.scope_type, r.key
+         from identity.user_roles ur
+         join identity.roles r on r.id = ur.role_id
+        where ur.account_id = $1
+          and ur.scope_type = 'supplier'
+          and ur.scope_id is not null
+        order by r.key`,
+      [accountId],
+    );
+    return res.rows.map((row) => ({
+      supplierId: asId<Uuid>(row.scope_id),
+      branchId: null,
+      roleKey: row.key,
+    }));
+  }
+
+  /**
+   * Effective permissions FOR A SCOPE.
+   *
+   * Without the scope filter a supplier owner who is also a client gets
+   * both role's permissions in one token, and a supplier session would
+   * carry `request.create`. Passing a supplierId narrows to global roles
+   * plus the roles granted on that supplier; passing none returns global
+   * roles only.
+   */
+  async permissionsOfScoped(accountId: AccountId, supplierId: Uuid | null): Promise<string[]> {
+    const res = await this.pool.query<{ key: string }>(
+      `select distinct p.key
+         from identity.user_roles ur
+         join identity.role_permissions rp on rp.role_id = ur.role_id
+         join identity.permissions p on p.id = rp.permission_id
+        where ur.account_id = $1
+          and (ur.scope_type = 'global' or ($2::uuid is not null and ur.scope_id = $2::uuid))
+        order by p.key`,
+      [accountId, supplierId],
+    );
+    return res.rows.map((r) => r.key);
+  }
+
+  /** Role keys under the same scoping rule as permissionsOfScoped. */
+  async rolesOfScoped(accountId: AccountId, supplierId: Uuid | null): Promise<string[]> {
+    const res = await this.pool.query<{ key: string }>(
+      `select distinct r.key
+         from identity.user_roles ur
+         join identity.roles r on r.id = ur.role_id
+        where ur.account_id = $1
+          and (ur.scope_type = 'global' or ($2::uuid is not null and ur.scope_id = $2::uuid))
+        order by r.key`,
+      [accountId, supplierId],
+    );
+    return res.rows.map((r) => r.key);
+  }
+
   async permissionsOf(accountId: AccountId): Promise<string[]> {
     const res = await this.pool.query<{ key: string }>(
       `select distinct p.key

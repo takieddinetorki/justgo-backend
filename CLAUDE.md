@@ -6,29 +6,88 @@ truth). This file is the working summary; keep both in sync as Open Questions
 
 ## Current status
 
-- **Phase 0 complete** (pushed, CI green): Nx monorepo, api + workers,
-  shared kernel/contracts/events/auth, outbox -> relay -> bus, architecture
-  fitness tests, CI.
-- **Phase 1 complete** (built + verified against the live self-hosted stack;
-  push pending): identity, suppliers + part-store vertical, requests (the
-  §8.1 core loop with idempotent submit + capability-driven fan-out), orders,
-  notifications + realtime (Supabase Realtime broadcast + FCM stub), and the
-  catalogue port with a stub TecDoc adapter. RLS isolation and the full
-  request -> fan-out -> quote -> accept -> order loop are proven live.
-- **Docs**: OpenAPI served at `/v1/docs` (`/v1/docs-json`), built in
+- **Phases 0-3 complete**, pushed, CI green. Phase 0 skeleton + guardrails;
+  Phase 1 identity, suppliers + part-store, requests (§8.1 core loop),
+  orders, notifications/realtime, catalogue port; Phase 2 real TecDoc
+  adapter (breaker + cache), vehicles, discovery (PostGIS), media + OCR,
+  wholesaler; Phase 3 reservations, the remaining verticals, marketplace,
+  assistance, supplier catalogue CRUD, and the 9th-vertical proof.
+- **Docs**: OpenAPI at `/v1/docs` (`/v1/docs-json`), built in
   `apps/api/src/openapi.ts`; field-level contract in
-  `docs/INTEGRATION_GUIDE.md`.
-- **Next: Phase 2** — real TecDoc adapter (circuit breaker + Redis short-TTL
-  cache), vehicles/garage + health/maintenance, media + OCR, discovery
-  (PostGIS), wholesaler vertical. Do not start a phase before the previous
-  DoD is green (spec §19).
+  `docs/INTEGRATION_GUIDE.md` (the handoff artefact for the frontend
+  integrator).
+- **Session issuance is done** — see below. The Phase-1 loose end about
+  hand-minted supplier tokens is closed.
+- **Next: Phase 4** — payments (provider port + sandbox, ledger,
+  commission), real notification channels, analytics read models,
+  multi-branch, multi-market/currency, k6 load tests to the §16 targets,
+  security/RLS review, and extracting one hot module as a separate
+  deployable. Do not start a phase before the previous DoD is green
+  (spec §19). Payments is blocked on spec §21 #3, #4 and #6 — do not guess
+  a pricing or capture model.
 
-### Phase-1 loose ends to revisit
-- Reactors (fan-out, order-from-quote, notifications) run in the API process;
-  spec §5 intends them in `apps/workers`. Each hop is proven by integration
-  tests; consolidating into the worker is a hardening cleanup.
-- Supplier-scoped JWT issuance (role -> `supplier_id` claim) is an operational
-  step, not yet an endpoint — test tokens are minted by hand.
+### Authentication is a TWO-step flow
+
+GoTrue proves identity; it knows nothing about roles, permissions or
+suppliers, because those are rows in the `identity` schema. So a raw
+GoTrue token has `roles: []` / `permissions: []` and **every route behind
+`@RequirePermissions('…')` returns 403**.
+
+`POST /v1/auth/session` (`libs/platform/identity`) is the exchange: it
+verifies the GoTrue token, self-provisions the account, resolves roles and
+permissions **for the requested scope**, and mints an HS256 token with the
+same `JWT_SECRET`. Rules that are load-bearing:
+
+- It carries GoTrue's `sub`, `role` and `aud` through untouched. `sub` is
+  what `app.auth_user_id()` reads in every RLS policy, `role` is what
+  PostgREST switches into, and the apps send the same token to Supabase
+  Realtime. Dropping any of them breaks something far from here.
+- Permissions are scoped, never unioned. A client who also owns a garage
+  must not get `quote.submit` in their client session.
+- A session never outlives the GoTrue token it came from (`expiryFor`), so
+  clients must re-exchange after every refresh.
+- Signing is symmetric-only. Under JWKS the API holds no private key and
+  issuance returns 501 rather than minting something that fails on use.
+- Supplier scope comes from `identity.user_roles` rows with
+  `scope_type='supplier'`, granted by `SupplierRoleReactor` reacting to
+  `suppliers.SupplierRegistered`. Identity never reads the suppliers
+  schema.
+
+### The event backbone was broken end-to-end (fixed 2026-09-07)
+
+Three bugs stacked on top of each other meant **no cross-process domain
+event had ever been delivered in a built app**. Nothing caught it because
+every integration test drives `InMemoryEventBus` in-process under ts-jest;
+the BullMQ path only exists in the webpack bundles, and nothing tested a
+bundle.
+
+1. **`[...setA, ...setB]` in `BullMqEventBus`.** SWC's loose downlevel
+   rewrote it as `[].concat(setA, setB)`, and `Array.concat` appends a Set
+   rather than spreading it. Every job died with `handler is not a
+   function`. Now collected with `Set.forEach`, plus an explicit
+   `typeof handler === 'function'` guard so the next variant of this fails
+   with a message that names the cause. **Never spread a Set or Map in code
+   that reaches a bundled app.**
+2. **`apps/workers` subscribed to `'*'` to log.** On this bus, subscribing
+   is what creates a consumer — so the worker competed with the API for
+   every job, and the API is where all the reactors live. Whether an event
+   took effect depended on which process won the race. Removed.
+3. **Removing (2) killed the worker.** `OutboxRelay` `unref()`s its poll
+   timer on purpose, and the process has no HTTP listener, so that
+   subscription's Redis socket was the only thing holding the event loop
+   open — the worker had been staying alive by accident. `OutboxRelayRunner`
+   now holds an explicit ref'd keep-alive it clears on shutdown.
+
+Both processes must run for events to flow: `nx serve @justgo-backend/api`
+AND `nx serve @justgo-backend/workers`. The relay publishes; the API
+consumes.
+
+### Remaining loose end
+- Reactors (fan-out, order-from-quote, notifications, supplier-role) run in
+  the API process; spec §5 intends them in `apps/workers`, which today holds
+  only the outbox relay. That split is what made bug (2) above possible.
+  Consolidating is hardening — and the natural warm-up for Phase 4's
+  "extract one module" DoD.
 
 ## Decisions made
 

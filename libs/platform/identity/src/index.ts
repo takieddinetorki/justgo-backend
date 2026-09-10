@@ -2,4 +2,5 @@
 export * from './contract/dto';
 export * from './contract/identity.port';
 export * from './contract/events';
+export * from './contract/roles';
 export { IdentityModule } from './identity.module';

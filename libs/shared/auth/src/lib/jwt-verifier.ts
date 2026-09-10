@@ -16,12 +16,23 @@ export interface JwtVerifierOptions {
 
 export interface TokenVerifier {
   verify(bearerToken: string): Promise<AuthContext>;
+  /**
+   * The raw verified payload.
+   *
+   * Session issuance needs the claims themselves, not the AuthContext
+   * derived from them: GoTrue puts `role`, `aud`, `session_id` and the
+   * metadata blobs in there, and a session token that dropped them would
+   * stop working against Supabase Realtime and PostgREST — surfaces the
+   * apps reach with the same token. Optional so hand-written test
+   * verifiers stay valid.
+   */
+  verifyClaims?(bearerToken: string): Promise<JustGoClaims>;
 }
 
 export const TOKEN_VERIFIER = Symbol('TOKEN_VERIFIER');
 
 /** Custom claims we mirror into the JWT for RLS parity (§11). */
-interface JustGoClaims extends JWTPayload {
+export interface JustGoClaims extends JWTPayload {
   account_id?: string;
   roles?: string[];
   permissions?: string[];
@@ -43,17 +54,19 @@ export class JoseTokenVerifier implements TokenVerifier {
   }
 
   async verify(bearerToken: string): Promise<AuthContext> {
-    let claims: JustGoClaims;
+    return claimsToContext(await this.verifyClaims(bearerToken));
+  }
+
+  async verifyClaims(bearerToken: string): Promise<JustGoClaims> {
     const verifyOpts = { issuer: this.opts.issuer, audience: this.opts.audience };
     try {
       const { payload } = this.secretKey
         ? await jwtVerify(bearerToken, this.secretKey, verifyOpts)
         : await jwtVerify(bearerToken, this.jwks as ReturnType<typeof createRemoteJWKSet>, verifyOpts);
-      claims = payload as JustGoClaims;
+      return payload as JustGoClaims;
     } catch {
       throw new UnauthenticatedError('Invalid or expired token');
     }
-    return claimsToContext(claims);
   }
 }
 

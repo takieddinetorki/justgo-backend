@@ -12,13 +12,21 @@ const DESCRIPTION = [
   'Backend for the JustGo automotive marketplace — one API for the Client',
   '("Orange") and Supplier ("Green") apps.',
   '',
-  '## Auth',
-  'Authentication is handled by the **self-hosted Supabase GoTrue** (not this',
-  'API). Obtain a JWT from GoTrue (email or phone sign-in), then send it as',
-  '`Authorization: Bearer <jwt>`. This API verifies the token (HS256) and reads',
-  'these custom claims: `account_id`, `roles`, `permissions`, and — for',
-  'supplier staff — `supplier_id`/`branch_id`. The first call to `GET /v1/me`',
-  'self-provisions the account row.',
+  '## Auth — two steps, not one',
+  '1. **Sign in with the self-hosted Supabase GoTrue** (email or phone). It',
+  '   returns an access token that proves WHO the user is.',
+  '2. **Exchange it at `POST /v1/auth/session`** for a JustGo session token',
+  '   that also says what they may DO. Send that one as',
+  '   `Authorization: Bearer <token>` on every other call.',
+  '',
+  'Step 2 is not optional. Roles and permissions are rows in the identity',
+  'schema, so a raw GoTrue token arrives with none — and every endpoint',
+  'behind a permission returns **403**. The exchange also carries the',
+  '`supplier_id` claim that puts an endpoint into supplier mode.',
+  '',
+  'The session token keeps GoTrue’s `sub`, `role` and `aud`, so it still works',
+  'against Supabase Realtime and PostgREST. It never outlives the GoTrue token',
+  'it came from — re-exchange after every refresh.',
   '',
   '## Conventions',
   '- **Money** is always `{ amountMinor, currency }` — integer minor units + ISO-4217.',
@@ -70,6 +78,47 @@ function schemas(): Record<string, unknown> {
         locale: { type: 'string', enum: ['en', 'es', 'fr'] },
         roles: { type: 'array', items: { type: 'string' } },
         createdAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    Session: {
+      type: 'object',
+      properties: {
+        accessToken: { type: 'string', description: 'Send as `Authorization: Bearer …`.' },
+        tokenType: { type: 'string', enum: ['Bearer'] },
+        expiresIn: {
+          type: 'integer',
+          example: 3600,
+          description: 'Seconds. Capped by the GoTrue token this was exchanged from.',
+        },
+        account: { $ref: '#/components/schemas/Account' },
+        roles: { type: 'array', items: { type: 'string' }, example: ['supplier_owner'] },
+        permissions: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Resolved for the requested scope, not the union of every role.',
+          example: ['quote.submit', 'supplier.requests.read'],
+        },
+        supplier: {
+          type: 'object',
+          nullable: true,
+          description: 'Null for a client session.',
+          properties: {
+            supplierId: { type: 'string', format: 'uuid' },
+            branchId: { type: 'string', format: 'uuid', nullable: true },
+          },
+        },
+        supplierScopes: {
+          type: 'array',
+          description: 'Every supplier this account could scope to — offer a choice when >1.',
+          items: {
+            type: 'object',
+            properties: {
+              supplierId: { type: 'string', format: 'uuid' },
+              branchId: { type: 'string', format: 'uuid', nullable: true },
+              roleKey: { type: 'string', example: 'supplier_owner' },
+            },
+          },
+        },
       },
     },
     Quote: {
@@ -227,6 +276,43 @@ function enrich(doc: OpenAPIObject): void {
   });
   const ok = (schema: unknown) => ({
     '200': { description: 'OK', content: { 'application/json': { schema } } },
+  });
+
+  set('/v1/auth/session', 'post', {
+    tags: ['Auth'],
+    summary: 'Exchange a GoTrue token for a JustGo session token',
+    description: [
+      'Call this straight after sign-in and again after every GoTrue refresh.',
+      '',
+      'Omit the body (or send `{"scope":"client"}`) for a client session.',
+      'The Supplier app sends `{"scope":"supplier"}` — which auto-selects when',
+      'the account acts for exactly one supplier — or names one explicitly with',
+      '`{"supplierId":"…"}`. Scoping is opt-in: owning a supplier never',
+      'silently turns a client session into a supplier one.',
+      '',
+      'Self-provisioning: a brand-new GoTrue user gets their account row here,',
+      'so calling `GET /v1/me` first is not required.',
+      '',
+      '`expiresIn` is the lesser of `SESSION_TOKEN_TTL_SECONDS` and the',
+      'remaining life of the token you exchanged.',
+    ].join('\n'),
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              scope: { type: 'string', enum: ['client', 'supplier'] },
+              supplierId: { type: 'string', format: 'uuid' },
+              branchId: { type: 'string', format: 'uuid' },
+            },
+          },
+          example: { scope: 'supplier' },
+        },
+      },
+    },
+    responses: { ...ok(ref('Session')), ...errors() },
   });
 
   set('/v1/me', 'get', {

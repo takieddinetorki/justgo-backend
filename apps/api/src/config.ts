@@ -22,6 +22,12 @@ const envSchema = z.object({
   JWT_JWKS_URL: z.string().url().optional(),
   JWT_ISSUER: z.string().optional(),
   JWT_AUDIENCE: z.string().optional(),
+  /**
+   * Lifetime of the session tokens POST /v1/auth/session mints. Capped in
+   * practice by the GoTrue token it was exchanged from — a session never
+   * outlives the authentication behind it.
+   */
+  SESSION_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
   SENTRY_DSN: z.string().url().optional(),

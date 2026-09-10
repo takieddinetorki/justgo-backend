@@ -26,18 +26,25 @@ read the API base URL and the Supabase URL/anon key from config.
 
 ## 2. Authentication
 
-**The backend does not issue tokens.** Sign-in is handled by the self-hosted
-**Supabase GoTrue**. The flow:
+Authentication is **two steps**, and skipping the second is the most common
+way to get stuck.
 
-1. The app authenticates the user against GoTrue (email or phone) and receives a
-   JWT (access token) + refresh token.
-2. The app calls this API with `Authorization: Bearer <access_token>`.
-3. This API verifies the JWT (HS256, shared secret) and builds an auth context
-   from its claims.
+1. **Sign in against the self-hosted Supabase GoTrue.** It returns an access
+   token proving *who* the user is.
+2. **Exchange that token at `POST /v1/auth/session`.** You get back a JustGo
+   session token that also carries *what they may do* — and, for supplier
+   staff, *which supplier they act for*. Send **this** token on every other
+   call.
 
-### Signing in (GoTrue, via Kong)
+> **Why two steps.** Roles and permissions are rows in the `identity` schema,
+> not something an authentication server knows. A raw GoTrue token therefore
+> arrives with no `roles` and no `permissions`, and every endpoint behind a
+> permission answers **403** — including the whole core loop. The exchange is
+> where authorisation gets attached.
 
-Use `supabase-js` (recommended) or call GoTrue directly. Direct example:
+### Step 1 — sign in (GoTrue, via Kong)
+
+Use `supabase-js` (recommended) or call GoTrue directly:
 
 ```
 POST http://localhost:8100/auth/v1/token?grant_type=password
@@ -47,40 +54,94 @@ Content-Type: application/json
 { "email": "user@example.com", "password": "…" }
 ```
 
-Response contains `access_token` (the JWT you send to this API) and
-`refresh_token`. Refresh with `grant_type=refresh_token`. Phone OTP and email
-sign-up use the standard GoTrue endpoints (`/auth/v1/signup`, `/auth/v1/otp`, …).
-
-`supabase-js`:
+Response contains `access_token` and `refresh_token`. Refresh with
+`grant_type=refresh_token`. Phone OTP and sign-up use the standard GoTrue
+endpoints (`/auth/v1/signup`, `/auth/v1/otp`, …).
 
 ```ts
 import { createClient } from '@supabase/supabase-js';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const { data } = await supabase.auth.signInWithPassword({ email, password });
-const jwt = data.session.access_token; // -> Authorization: Bearer <jwt>
+const gotrueToken = data.session.access_token;
 ```
 
-### Claims this API reads
+### Step 2 — exchange for a session token
+
+```
+POST /v1/auth/session
+Authorization: Bearer <gotrue access_token>
+Content-Type: application/json
+
+{}                          // Client app
+{ "scope": "supplier" }     // Supplier app
+{ "supplierId": "…" }       // Supplier app, explicit business
+```
+
+```json
+{
+  "accessToken": "eyJhbGciOi…",
+  "tokenType": "Bearer",
+  "expiresIn": 3600,
+  "account": { "id": "…", "authUserId": "…", "locale": "en", "roles": ["supplier_owner"], … },
+  "roles": ["supplier_owner"],
+  "permissions": ["order.read", "quote.submit", "supplier.requests.read", …],
+  "supplier": { "supplierId": "…", "branchId": null },
+  "supplierScopes": [{ "supplierId": "…", "branchId": null, "roleKey": "supplier_owner" }]
+}
+```
+
+Use `accessToken` as `Authorization: Bearer …` for everything else.
+
+**Rules worth knowing:**
+
+- **Self-provisioning.** A brand-new GoTrue user gets their account row here.
+  You do not have to call `GET /v1/me` first.
+- **Scoping is opt-in.** Owning a supplier never silently turns a client
+  session into a supplier one. The Client app sends `{}`; the Supplier app
+  asks. `{"scope":"supplier"}` auto-selects when the account acts for exactly
+  one supplier; with several it returns **400** listing them, and you re-send
+  with an explicit `supplierId`. `supplierScopes` in the response tells you
+  what is available.
+- **Permissions are scope-specific**, not the union of every role. A person
+  who is both a client and a garage owner gets `request.create` in their
+  client session and `quote.submit` in their supplier session — never both in
+  one token.
+- **A session never outlives its GoTrue token.** `expiresIn` is the lesser of
+  the server's TTL and the remaining life of the token you exchanged, so
+  **re-exchange after every GoTrue refresh**, not once at install.
+- **The session token still works against Supabase.** `sub`, `role` and `aud`
+  are carried through untouched, so Realtime and PostgREST keep accepting it.
+
+### Becoming a supplier
+
+`POST /v1/supplier` registers a business using an ordinary client session.
+The supplier role is granted asynchronously (the API reacts to
+`suppliers.SupplierRegistered`), so **exchange again** afterwards to get a
+token carrying `supplier_id`:
+
+```
+POST /v1/supplier          → { id: "sup-1", … }        (client session)
+POST /v1/auth/session      → { "scope": "supplier" }   (a moment later)
+```
+
+If the new scope is not there yet, retry once — the grant travels through the
+outbox relay.
+
+### Claims the API reads
 
 | Claim | Meaning |
 |---|---|
-| `sub` / `account_id` | the user's account id (falls back to `sub` if `account_id` absent) |
+| `sub` | Supabase `auth.users.id`. Read by RLS as `app.auth_user_id()`. |
+| `account_id` | `identity.accounts.id`. Added by the exchange. |
 | `roles` | string[] of role keys (e.g. `client`, `supplier_owner`) |
-| `permissions` | string[] of permission keys the RBAC guard checks |
-| `supplier_id` | present for supplier staff — scopes them to one supplier |
+| `permissions` | string[] the RBAC guard checks |
+| `supplier_id` | present for a supplier session — scopes the caller to one supplier |
 | `branch_id` | optional branch scope |
 | `locale` | `en` \| `es` \| `fr` (defaults `en`) |
 
-> **First contact:** a freshly-created GoTrue user has no account row yet. The
-> first call to `GET /v1/me` self-provisions the account (with the default
-> `client` role) and returns it. Call `GET /v1/me` right after sign-in.
-
-> **Supplier sessions:** a supplier staff member's token carries `supplier_id`.
-> The same endpoints behave supplier-side when that claim is present (e.g.
-> `GET /v1/orders` returns the supplier's orders, `GET /v1/notifications`
-> returns the supplier's feed). Provisioning supplier scope onto a token
-> (role assignment + claim mapping) is an operational step outside these
-> endpoints in Phase 1 — coordinate with backend for test tokens.
+> **Supplier sessions:** the same endpoints behave supplier-side when
+> `supplier_id` is present — `GET /v1/orders` returns the supplier's orders,
+> `GET /v1/notifications` its feed.
 
 ### Roles → permissions (Phase 1 seed)
 
@@ -208,8 +269,28 @@ always reconcile against those on reconnect/foreground.
 
 ## 6. Endpoint reference
 
-All endpoints require `Authorization: Bearer <jwt>` except the public ones:
-`GET /v1/health` and `GET /v1/discovery/suppliers`.
+All endpoints require `Authorization: Bearer <session token>` (see §2) except
+the public ones: `GET /v1/health` and `GET /v1/discovery/suppliers`.
+
+### Auth
+- **`POST /v1/auth/session`** body `{ scope?: 'client'|'supplier', supplierId?, branchId? }`
+  → `Session`. Takes a **GoTrue** token; returns the session token every other
+  endpoint expects. See §2 for the rules.
+
+`Session`:
+```json
+{ "accessToken":"eyJhbGciOi…","tokenType":"Bearer","expiresIn":3600,
+  "account":{ "id":"uuid","authUserId":"uuid","locale":"en","roles":["supplier_owner"] },
+  "roles":["supplier_owner"],
+  "permissions":["order.read","quote.submit","supplier.requests.read"],
+  "supplier":{ "supplierId":"uuid","branchId":null },
+  "supplierScopes":[{ "supplierId":"uuid","branchId":null,"roleKey":"supplier_owner" }] }
+```
+
+Errors: **403** if you name a supplier the account holds no role on (details
+list what it may use); **400** if `scope:"supplier"` matches several
+suppliers; **501** if the deployment verifies via JWKS rather than a shared
+secret, in which case the API holds no key it may sign with.
 
 ### Me
 - **`GET /v1/me`** → `Account`. Self-provisions on first call.

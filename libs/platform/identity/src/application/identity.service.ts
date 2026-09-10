@@ -1,12 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { NotFoundError, type AccountId, type Uuid } from '@justgo/kernel';
-import type { AccountDTO, ProfilePatchDTO } from '../contract/dto';
+import type { AccountDTO, ProfilePatchDTO, SupplierScopeDTO } from '../contract/dto';
 import type { IdentityPort } from '../contract/identity.port';
 import { Account } from '../domain/account';
 import { PgIdentityRepository } from '../infra/pg-identity.repository';
 
+import { DEFAULT_ROLE_KEY } from '../contract/roles';
+
 export const IDENTITY_REPOSITORY = Symbol('IDENTITY_REPOSITORY');
-export const DEFAULT_ROLE_KEY = 'client';
+export { DEFAULT_ROLE_KEY };
 
 function toDTO(account: Account): AccountDTO {
   return {
@@ -62,5 +64,14 @@ export class IdentityService implements IdentityPort {
 
   async permissionsOf(accountId: AccountId): Promise<string[]> {
     return this.repo.permissionsOf(accountId);
+  }
+
+  async supplierScopesOf(accountId: AccountId): Promise<SupplierScopeDTO[]> {
+    return this.repo.supplierScopesOf(accountId);
+  }
+
+  async resolveAccount(idOrAuthUserId: Uuid): Promise<AccountDTO | null> {
+    const account = await this.repo.findByIdOrAuthUserId(idOrAuthUserId);
+    return account ? toDTO(account) : null;
   }
 }

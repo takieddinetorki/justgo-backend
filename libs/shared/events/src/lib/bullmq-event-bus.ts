@@ -61,16 +61,43 @@ export class BullMqEventBus implements EventBus {
     };
   }
 
+  /**
+   * Collected with `Set.forEach`, NOT `[...setA, ...setB]`.
+   *
+   * This is not style. The apps are webpack+SWC bundles, and SWC's loose
+   * downlevel rewrites that spread as `[].concat(setA, setB)` — and
+   * `Array.prototype.concat` does not spread a Set, it appends it. Every
+   * job then failed with "handler is not a function", so NO cross-process
+   * domain event was ever delivered in a built app: no fan-out, no
+   * order-from-quote, no notifications, no discovery indexing.
+   *
+   * It survived because every integration test drives `InMemoryEventBus`
+   * in-process under ts-jest, where the spread compiles correctly. The
+   * bundle was the only place it broke, and nothing tested the bundle.
+   */
+  private handlersFor(type: string): EventHandler[] {
+    const targets: EventHandler[] = [];
+    this.handlers.get(type)?.forEach((h) => targets.push(h));
+    if (type !== '*') this.handlers.get('*')?.forEach((h) => targets.push(h));
+    return targets;
+  }
+
   private ensureWorker(): void {
     this.worker ??= new Worker(
       this.queueName,
       async (job) => {
         const event = job.data as DomainEvent;
-        const targets = [
-          ...(this.handlers.get(event.type) ?? []),
-          ...(this.handlers.get('*') ?? []),
-        ];
-        for (const handler of targets) await handler(event);
+        for (const handler of this.handlersFor(event.type)) {
+          if (typeof handler !== 'function') {
+            // Belt and braces for the class of bug described above: fail
+            // with something that names the cause, not `handler is not a
+            // function` eight frames deep in BullMQ.
+            throw new TypeError(
+              `Event handler for "${event.type}" is not callable (got ${typeof handler})`,
+            );
+          }
+          await handler(event);
+        }
       },
       { connection: { url: this.redisUrl } },
     );
