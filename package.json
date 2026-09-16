@@ -1,6 +1,7 @@
 {
   "name": "@justgo-backend/source",
   "version": "0.0.0",
+  "packageManager": "pnpm@9.15.9",
   "license": "MIT",
   "scripts": {
     "migrate": "node scripts/migrate.mjs",
