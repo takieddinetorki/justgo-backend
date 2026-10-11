@@ -27,19 +27,25 @@
   ],
   "references": [
     {
-      "path": "../../libs/verticals/insurance/tsconfig.lib.json"
+      "path": "../../libs/platform/messaging/tsconfig.lib.json"
     },
     {
-      "path": "../../libs/verticals/roadside/tsconfig.lib.json"
+      "path": "../../libs/verticals/workshop/tsconfig.lib.json"
     },
     {
-      "path": "../../libs/platform/assistance/tsconfig.lib.json"
+      "path": "../../libs/verticals/wholesaler/tsconfig.lib.json"
     },
     {
       "path": "../../libs/verticals/showroom/tsconfig.lib.json"
     },
     {
-      "path": "../../libs/platform/marketplace/tsconfig.lib.json"
+      "path": "../../libs/verticals/roadside/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/verticals/part-store/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/verticals/insurance/tsconfig.lib.json"
     },
     {
       "path": "../../libs/verticals/diagnostics/tsconfig.lib.json"
@@ -48,31 +54,16 @@
       "path": "../../libs/verticals/body-paint/tsconfig.lib.json"
     },
     {
-      "path": "../../libs/verticals/workshop/tsconfig.lib.json"
-    },
-    {
-      "path": "../../libs/platform/reservations/tsconfig.lib.json"
-    },
-    {
-      "path": "../../libs/verticals/wholesaler/tsconfig.lib.json"
-    },
-    {
-      "path": "../../libs/crosscutting/media/tsconfig.lib.json"
-    },
-    {
-      "path": "../../libs/platform/discovery/tsconfig.lib.json"
-    },
-    {
       "path": "../../libs/platform/vehicles/tsconfig.lib.json"
-    },
-    {
-      "path": "../../libs/verticals/part-store/tsconfig.lib.json"
     },
     {
       "path": "../../libs/integrations/tecdoc/tsconfig.lib.json"
     },
     {
       "path": "../../libs/platform/suppliers/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/platform/reservations/tsconfig.lib.json"
     },
     {
       "path": "../../libs/platform/requests/tsconfig.lib.json"
@@ -87,6 +78,12 @@
       "path": "../../libs/crosscutting/notifications/tsconfig.lib.json"
     },
     {
+      "path": "../../libs/crosscutting/media/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/platform/marketplace/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/shared/kernel/tsconfig.lib.json"
     },
     {
@@ -96,6 +93,9 @@
       "path": "../../libs/shared/events/tsconfig.lib.json"
     },
     {
+      "path": "../../libs/platform/discovery/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/shared/contracts/tsconfig.lib.json"
     },
     {
@@ -103,6 +103,9 @@
     },
     {
       "path": "../../libs/shared/auth/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/platform/assistance/tsconfig.lib.json"
     }
   ]
 }

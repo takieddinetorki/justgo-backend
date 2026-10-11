@@ -92,6 +92,9 @@
     },
     {
       "path": "./libs/verticals/insurance"
+    },
+    {
+      "path": "./libs/platform/messaging"
     }
   ]
 }

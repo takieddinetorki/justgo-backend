@@ -20,6 +20,7 @@ insert into identity.permissions (key) values
   ('supplier.profile.manage'), ('supplier.catalog.manage'),
   ('order.read'), ('order.create'),
   ('reservation.create'), ('reservation.manage'),
+  ('message.send'),
   ('listing.publish'), ('listing.contact'),
   ('platform.admin')
 on conflict (key) do nothing;
@@ -33,6 +34,7 @@ with role_perm(role_key, perm_key) as (
     ('client', 'quote.accept'), ('client', 'quote.refuse'),
     ('client', 'order.read'), ('client', 'order.create'),
     ('client', 'reservation.create'),
+    ('client', 'message.send'),
     ('client', 'listing.publish'), ('client', 'listing.contact'),
 
     ('fleet', 'me.read'), ('fleet', 'me.update'),
@@ -41,6 +43,7 @@ with role_perm(role_key, perm_key) as (
     ('fleet', 'quote.accept'), ('fleet', 'quote.refuse'),
     ('fleet', 'order.read'), ('fleet', 'order.create'),
     ('fleet', 'reservation.create'),
+    ('fleet', 'message.send'),
 
     ('guest', 'request.create'), ('guest', 'request.read'),
 
@@ -49,12 +52,14 @@ with role_perm(role_key, perm_key) as (
     ('supplier_owner', 'supplier.profile.manage'), ('supplier_owner', 'supplier.catalog.manage'),
     ('supplier_owner', 'order.read'),
     ('supplier_owner', 'reservation.manage'),
+    ('supplier_owner', 'message.send'),
 
     ('branch_manager', 'me.read'), ('branch_manager', 'me.update'),
     ('branch_manager', 'quote.submit'), ('branch_manager', 'supplier.requests.read'),
     ('branch_manager', 'supplier.catalog.manage'),
     ('branch_manager', 'order.read'),
     ('branch_manager', 'reservation.manage'),
+    ('branch_manager', 'message.send'),
 
     ('ops_admin', 'platform.admin')
 )

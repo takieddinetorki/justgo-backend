@@ -28,7 +28,13 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 // Mirrors the `bucket` enum in libs/crosscutting/media/src/media.controller.ts.
 // Keep the two in step: a bucket named there and missing here fails at runtime.
-const BUCKETS = ['registrations', 'vehicle-photos', 'part-photos', 'avatars'];
+const BUCKETS = [
+  'registrations',
+  'vehicle-photos',
+  'part-photos',
+  'avatars',
+  'message-attachments',
+];
 
 function loadEnv() {
   if (process.env['SUPABASE_URL'] && process.env['SUPABASE_SERVICE_KEY']) return;

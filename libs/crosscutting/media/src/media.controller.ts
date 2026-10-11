@@ -7,7 +7,13 @@ import { OCR_PROVIDER, type OcrProvider, type RegistrationDraft } from './contra
 
 const uploadSchema = z
   .object({
-    bucket: z.enum(['registrations', 'vehicle-photos', 'part-photos', 'avatars']),
+    bucket: z.enum([
+      'registrations',
+      'vehicle-photos',
+      'part-photos',
+      'avatars',
+      'message-attachments',
+    ]),
     filename: z.string().min(1).max(200),
     contentType: z.string().max(100).optional(),
   })

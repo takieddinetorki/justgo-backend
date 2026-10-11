@@ -1,0 +1,36 @@
+{
+  "name": "@justgo/messaging",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@justgo-backend/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@justgo/auth": "workspace:*",
+    "@justgo/contracts": "workspace:*",
+    "@justgo/events": "workspace:*",
+    "@justgo/kernel": "workspace:*",
+    "@nestjs/common": "^11.0.0",
+    "pg": "^8.16.3",
+    "tslib": "^2.3.0",
+    "zod": "^4.1.13"
+  },
+  "nx": {
+    "tags": [
+      "scope:platform",
+      "type:impl"
+    ]
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0"
+  }
+}

@@ -96,6 +96,7 @@
     "@justgo/kernel": "workspace:*",
     "@justgo/marketplace": "workspace:*",
     "@justgo/media": "workspace:*",
+    "@justgo/messaging": "workspace:*",
     "@justgo/notifications": "workspace:*",
     "@justgo/orders": "workspace:*",
     "@justgo/realtime": "workspace:*",

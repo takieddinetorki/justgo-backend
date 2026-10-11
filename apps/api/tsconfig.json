@@ -4,19 +4,25 @@
   "include": [],
   "references": [
     {
-      "path": "../../libs/verticals/insurance"
+      "path": "../../libs/platform/messaging"
     },
     {
-      "path": "../../libs/verticals/roadside"
+      "path": "../../libs/verticals/workshop"
     },
     {
-      "path": "../../libs/platform/assistance"
+      "path": "../../libs/verticals/wholesaler"
     },
     {
       "path": "../../libs/verticals/showroom"
     },
     {
-      "path": "../../libs/platform/marketplace"
+      "path": "../../libs/verticals/roadside"
+    },
+    {
+      "path": "../../libs/verticals/part-store"
+    },
+    {
+      "path": "../../libs/verticals/insurance"
     },
     {
       "path": "../../libs/verticals/diagnostics"
@@ -25,31 +31,16 @@
       "path": "../../libs/verticals/body-paint"
     },
     {
-      "path": "../../libs/verticals/workshop"
-    },
-    {
-      "path": "../../libs/platform/reservations"
-    },
-    {
-      "path": "../../libs/verticals/wholesaler"
-    },
-    {
-      "path": "../../libs/crosscutting/media"
-    },
-    {
-      "path": "../../libs/platform/discovery"
-    },
-    {
       "path": "../../libs/platform/vehicles"
-    },
-    {
-      "path": "../../libs/verticals/part-store"
     },
     {
       "path": "../../libs/integrations/tecdoc"
     },
     {
       "path": "../../libs/platform/suppliers"
+    },
+    {
+      "path": "../../libs/platform/reservations"
     },
     {
       "path": "../../libs/platform/requests"
@@ -64,6 +55,12 @@
       "path": "../../libs/crosscutting/notifications"
     },
     {
+      "path": "../../libs/crosscutting/media"
+    },
+    {
+      "path": "../../libs/platform/marketplace"
+    },
+    {
       "path": "../../libs/shared/kernel"
     },
     {
@@ -73,6 +70,9 @@
       "path": "../../libs/shared/events"
     },
     {
+      "path": "../../libs/platform/discovery"
+    },
+    {
       "path": "../../libs/shared/contracts"
     },
     {
@@ -80,6 +80,9 @@
     },
     {
       "path": "../../libs/shared/auth"
+    },
+    {
+      "path": "../../libs/platform/assistance"
     },
     {
       "path": "./tsconfig.app.json"
