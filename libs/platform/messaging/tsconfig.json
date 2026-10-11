@@ -4,9 +4,6 @@
   "include": [],
   "references": [
     {
-      "path": "../../shared/contracts"
-    },
-    {
       "path": "../../shared/auth"
     },
     {

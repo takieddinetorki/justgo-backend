@@ -19,9 +19,6 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
-      "path": "../../shared/contracts/tsconfig.lib.json"
-    },
-    {
       "path": "../../shared/auth/tsconfig.lib.json"
     },
     {
