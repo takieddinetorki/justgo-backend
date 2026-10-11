@@ -202,8 +202,15 @@ docker compose -f docker-compose.app.yml up -d
 
 # Migrations / seed
 docker run --rm --network justgo-supabase_default --env-file .env.vps \
-  justgo-app:dev sh -c "node scripts/migrate.mjs && node scripts/seed.mjs"
+  justgo-app:dev sh -c "node scripts/migrate.mjs && node scripts/seed.mjs && node scripts/create-buckets.mjs"
 ```
+
+**Storage buckets are not created by migrate or seed.** They live in
+Storage's own metadata, and a fresh stack has none — until they exist,
+`POST /v1/media/uploads` returns 500 for every bucket because Storage
+answers the sign request with HTTP 400. That is what broke image upload
+in the sell-car flow. Run `create-buckets.mjs` after any rebuild that
+resets the database; it is idempotent.
 
 **`--no-deps` is required.** Kong lists Studio in `depends_on`, so a plain
 `docker compose up -d` drags Studio — another Next.js, ~250 MB — onto a
