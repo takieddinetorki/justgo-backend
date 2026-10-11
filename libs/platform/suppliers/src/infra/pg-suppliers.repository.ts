@@ -81,6 +81,8 @@ export class PgSuppliersRepository {
             lat: input.lat ?? null,
             lng: input.lng ?? null,
             categoryKeys: enrich.categoryKeys,
+            city: input.city ?? null,
+            country: input.country ?? null,
           },
         }),
       ]);

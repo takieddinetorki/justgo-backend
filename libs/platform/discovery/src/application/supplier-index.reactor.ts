@@ -12,6 +12,12 @@ interface SupplierRegisteredPayload {
   lat?: number | null;
   lng?: number | null;
   categoryKeys?: string[];
+  // v2 of the event (§12). Absent on anything emitted before the
+  // directory existed, which is why the upsert coalesces rather than
+  // overwrites.
+  city?: string | null;
+  country?: string | null;
+  rating?: number | null;
 }
 
 /**
@@ -40,6 +46,9 @@ export class SupplierIndexReactor implements OnApplicationBootstrap {
       lat: p.lat ?? null,
       lng: p.lng ?? null,
       categoryKeys: p.categoryKeys ?? [],
+      city: p.city ?? null,
+      country: p.country ?? null,
+      rating: p.rating ?? null,
     });
     this.logger.log(`indexed supplier ${p.supplierId} (${p.verticalKey})`);
   }
