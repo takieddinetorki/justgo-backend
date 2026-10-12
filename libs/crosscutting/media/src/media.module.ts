@@ -42,6 +42,14 @@ export class MediaModule {
         },
         { provide: OCR_PROVIDER, useClass: StubOcrProvider },
       ],
+      /*
+        GLOBAL. Media is a crosscutting concern — `documents` seals and
+        re-reads PDFs through it, and anything that stores a file will
+        want it too. Without this, a consumer in another module gets
+        "Nest can't resolve MEDIA_PORT", which is the same injector-scope
+        trap that silently killed fan-out.
+      */
+      global: true,
       exports: [MEDIA_PORT, OCR_PROVIDER],
     };
   }

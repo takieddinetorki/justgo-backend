@@ -18,6 +18,20 @@ export interface MediaPort {
   createUploadUrl(input: { bucket: string; path: string; contentType?: string }): Promise<SignedUpload>;
   /** Short-lived download URL for a private object (§14). */
   createSignedDownloadUrl(input: { bucket: string; path: string; expiresInSeconds?: number }): Promise<string>;
+  /**
+   * Server-side write. Unlike `createUploadUrl`, the bytes go through the
+   * API — which is correct for artefacts the PLATFORM issues rather than
+   * the user uploads: a sealed document must never be writable by a
+   * client holding a signed URL.
+   */
+  putObject(input: {
+    bucket: string;
+    path: string;
+    bytes: Uint8Array;
+    contentType?: string;
+  }): Promise<void>;
+  /** Server-side read, for re-hashing a stored object during verification. */
+  getObject(input: { bucket: string; path: string }): Promise<Uint8Array>;
 }
 
 export const MEDIA_PORT = Symbol('MEDIA_PORT');

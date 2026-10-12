@@ -6,17 +6,20 @@ const envSchema = z.object({
   REDIS_URL: z.string().url().optional(),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   /**
-   * Comma-separated module schemas whose outboxes the relay drains.
+   * Which module outboxes the relay drains.
    *
-   * The default is the REAL module list, not 'demo'. A schema missing
-   * here fails silently and totally: rows pile up in its outbox, nothing
-   * is ever published, and no reactor fires — with no error anywhere,
-   * because an undrained outbox looks exactly like an idle one. Adding a
-   * module means adding it here.
+   * `auto` (the default) DISCOVERS them: every schema in the database
+   * with a table named `outbox`. A hand-maintained list was wrong twice
+   * — `messaging` was missing when it shipped, and `reservations`,
+   * `marketplace` and `vehicles` were never in it at all, so 38 events
+   * sat unpublished and no reactor downstream of them ever fired. The
+   * failure is invisible, because an undrained outbox looks exactly like
+   * an idle one.
+   *
+   * An explicit comma-separated list still overrides, for pinning a
+   * subset deliberately.
    */
-  OUTBOX_SCHEMAS: z
-    .string()
-    .default('identity,suppliers,requests,orders,notifications,messaging'),
+  OUTBOX_SCHEMAS: z.string().default('auto'),
   OUTBOX_POLL_MS: z.coerce.number().int().positive().default(500),
 });
 

@@ -95,6 +95,9 @@
     },
     {
       "path": "./libs/platform/messaging"
+    },
+    {
+      "path": "./libs/platform/documents"
     }
   ]
 }

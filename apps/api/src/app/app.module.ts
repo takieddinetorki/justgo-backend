@@ -18,6 +18,7 @@ import { ReservationsModule } from '@justgo/reservations';
 import { MarketplaceModule } from '@justgo/marketplace';
 import { AssistanceModule } from '@justgo/assistance';
 import { MessagingModule } from '@justgo/messaging';
+import { DocumentsModule } from '@justgo/documents';
 import { loadConfig } from '../config';
 import { HealthController } from './health.controller';
 import { DocsController } from './docs.controller';
@@ -72,7 +73,7 @@ const config = loadConfig();
       apiKey: config.SUPABASE_SERVICE_KEY,
     }),
     ...(config.DATABASE_URL
-      ? [TargetingModule.forRoot(), IdentityModule, SuppliersModule, RequestsModule, OrdersModule, NotificationsModule, VehiclesModule, DiscoveryModule, CatalogueModule.forRoot(), ReservationsModule, MarketplaceModule, AssistanceModule, MessagingModule]
+      ? [TargetingModule.forRoot(), IdentityModule, SuppliersModule, RequestsModule, OrdersModule, NotificationsModule, VehiclesModule, DiscoveryModule, CatalogueModule.forRoot(), ReservationsModule, MarketplaceModule, AssistanceModule, MessagingModule, DocumentsModule.forRoot()]
       : []),
   ],
   controllers: [HealthController, DocsController],

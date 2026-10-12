@@ -91,6 +91,7 @@
     "@justgo/catalogue": "workspace:*",
     "@justgo/contracts": "workspace:*",
     "@justgo/discovery": "workspace:*",
+    "@justgo/documents": "workspace:*",
     "@justgo/events": "workspace:*",
     "@justgo/identity": "workspace:*",
     "@justgo/kernel": "workspace:*",

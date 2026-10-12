@@ -27,9 +27,6 @@
   ],
   "references": [
     {
-      "path": "../../libs/platform/messaging/tsconfig.lib.json"
-    },
-    {
       "path": "../../libs/verticals/workshop/tsconfig.lib.json"
     },
     {
@@ -78,6 +75,9 @@
       "path": "../../libs/crosscutting/notifications/tsconfig.lib.json"
     },
     {
+      "path": "../../libs/platform/messaging/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/crosscutting/media/tsconfig.lib.json"
     },
     {
@@ -91,6 +91,9 @@
     },
     {
       "path": "../../libs/shared/events/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/platform/documents/tsconfig.lib.json"
     },
     {
       "path": "../../libs/platform/discovery/tsconfig.lib.json"

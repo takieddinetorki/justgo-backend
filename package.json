@@ -57,6 +57,7 @@
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
     "axios": "^1.6.0",
+    "pdf-lib": "^1.17.1",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.0"
   },

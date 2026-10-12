@@ -4,9 +4,6 @@
   "include": [],
   "references": [
     {
-      "path": "../../libs/platform/messaging"
-    },
-    {
       "path": "../../libs/verticals/workshop"
     },
     {
@@ -55,6 +52,9 @@
       "path": "../../libs/crosscutting/notifications"
     },
     {
+      "path": "../../libs/platform/messaging"
+    },
+    {
       "path": "../../libs/crosscutting/media"
     },
     {
@@ -68,6 +68,9 @@
     },
     {
       "path": "../../libs/shared/events"
+    },
+    {
+      "path": "../../libs/platform/documents"
     },
     {
       "path": "../../libs/platform/discovery"

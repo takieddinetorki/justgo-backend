@@ -3,6 +3,10 @@ import type { MediaPort, SignedUpload } from '../contract/media.port';
 
 export interface StorageHttp {
   post<T>(path: string, body: Record<string, unknown>): Promise<T>;
+  /** Raw byte upload. The JSON `post` above cannot carry a PDF. */
+  put(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
+  /** Raw byte download, for re-hashing a stored object. */
+  get(path: string): Promise<Uint8Array>;
 }
 
 export interface SupabaseStorageOptions {
@@ -29,6 +33,36 @@ export class SupabaseStorageHttp implements StorageHttp {
     });
     if (!res.ok) throw new Error(`Supabase Storage ${path} -> HTTP ${res.status}`);
     return (await res.json()) as T;
+  }
+
+  async put(path: string, bytes: Uint8Array, contentType: string): Promise<void> {
+    const f = this.opts.fetchImpl ?? fetch;
+    const res = await f(`${this.opts.supabaseUrl.replace(/\/$/, '')}/storage/v1/${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': contentType,
+        authorization: `Bearer ${this.opts.serviceKey}`,
+        apikey: this.opts.serviceKey,
+        // Refuse to overwrite. Sealed documents are write-once: a path
+        // that already exists means something has gone badly wrong, and
+        // silently replacing it would destroy evidence.
+        'x-upsert': 'false',
+      },
+      body: Buffer.from(bytes),
+    });
+    if (!res.ok) throw new Error(`Supabase Storage PUT ${path} -> HTTP ${res.status}`);
+  }
+
+  async get(path: string): Promise<Uint8Array> {
+    const f = this.opts.fetchImpl ?? fetch;
+    const res = await f(`${this.opts.supabaseUrl.replace(/\/$/, '')}/storage/v1/${path}`, {
+      headers: {
+        authorization: `Bearer ${this.opts.serviceKey}`,
+        apikey: this.opts.serviceKey,
+      },
+    });
+    if (!res.ok) throw new Error(`Supabase Storage GET ${path} -> HTTP ${res.status}`);
+    return new Uint8Array(await res.arrayBuffer());
   }
 }
 
@@ -76,5 +110,22 @@ export class SupabaseStorageAdapter implements MediaPort {
       { expiresIn: ttl },
     );
     return `${this.baseUrl}/storage/v1/${res.signedURL.replace(/^\//, '')}`;
+  }
+
+  async putObject(input: {
+    bucket: string;
+    path: string;
+    bytes: Uint8Array;
+    contentType?: string;
+  }): Promise<void> {
+    await this.http.put(
+      `object/${input.bucket}/${input.path}`,
+      input.bytes,
+      input.contentType ?? 'application/octet-stream',
+    );
+  }
+
+  async getObject(input: { bucket: string; path: string }): Promise<Uint8Array> {
+    return this.http.get(`object/${input.bucket}/${input.path}`);
   }
 }
