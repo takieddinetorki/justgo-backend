@@ -1,10 +1,4 @@
-import {
-  Inject,
-  Injectable,
-  Logger,
-  Optional,
-  type OnApplicationBootstrap,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { asId, type RequestId, type SupplierId } from '@justgo/kernel';
 import { EVENT_BUS, type DomainEvent, type EventBus } from '@justgo/events';
 import {
@@ -32,9 +26,15 @@ export class FanOutReactor implements OnApplicationBootstrap {
     @Inject(EVENT_BUS) private readonly bus: EventBus,
     @Inject(REQUESTS_PORT) private readonly requests: RequestsPort,
     private readonly verticals: VerticalRegistry,
-    @Optional()
+    /*
+      NOT @Optional(). It was, and that is precisely how this failed
+      silently: the port resolved to null, the reactor logged one warning
+      and returned, and every part request was dropped on the floor while
+      the application looked perfectly healthy. A mis-wired core loop must
+      refuse to boot, not idle.
+    */
     @Inject(SUPPLIER_TARGETING_PORT)
-    private readonly targeting: SupplierTargetingPort | null,
+    private readonly targeting: SupplierTargetingPort,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -42,10 +42,6 @@ export class FanOutReactor implements OnApplicationBootstrap {
   }
 
   async handle(event: DomainEvent): Promise<void> {
-    if (!this.targeting) {
-      this.logger.warn('No SupplierTargetingPort wired — skipping fan-out');
-      return;
-    }
     const payload = event.payload as RequestSubmittedV1;
 
     const verticalKeys = this.verticals
@@ -63,6 +59,16 @@ export class FanOutReactor implements OnApplicationBootstrap {
       asId<RequestId>(payload.requestId),
       supplierIds.map((id) => asId<SupplierId>(id)),
     );
+    if (created === 0) {
+      // Not an error — there may genuinely be no open supplier in a
+      // capable vertical — but it means the client will see nothing, so
+      // it must be visible rather than indistinguishable from success.
+      this.logger.warn(
+        `request ${payload.requestId}: fanned out to NOBODY ` +
+          `(verticals=${verticalKeys.join(',') || 'none'}, category=${payload.categoryKey ?? 'any'})`,
+      );
+      return;
+    }
     this.logger.log(
       `request ${payload.requestId}: fanned out to ${created} supplier(s) across ${verticalKeys.length} vertical(s)`,
     );

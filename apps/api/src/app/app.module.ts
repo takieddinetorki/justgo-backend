@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import { EventsModule } from '@justgo/events';
 import { AuthModule } from '@justgo/auth';
-import { ContractsModule, SUPPLIER_TARGETING_PORT } from '@justgo/contracts';
+import { ContractsModule } from '@justgo/contracts';
 import { IdentityModule } from '@justgo/identity';
 import { SuppliersModule } from '@justgo/suppliers';
 import { RequestsModule } from '@justgo/requests';
@@ -22,7 +22,7 @@ import { loadConfig } from '../config';
 import { HealthController } from './health.controller';
 import { DocsController } from './docs.controller';
 import { ENABLED_VERTICALS } from './verticals';
-import { SupplierTargetingAdapter } from './supplier-targeting.adapter';
+import { TargetingModule } from './targeting.module';
 import { SchedulerRunner } from './scheduler.runner';
 
 const config = loadConfig();
@@ -72,19 +72,18 @@ const config = loadConfig();
       apiKey: config.SUPABASE_SERVICE_KEY,
     }),
     ...(config.DATABASE_URL
-      ? [IdentityModule, SuppliersModule, RequestsModule, OrdersModule, NotificationsModule, VehiclesModule, DiscoveryModule, CatalogueModule.forRoot(), ReservationsModule, MarketplaceModule, AssistanceModule, MessagingModule]
+      ? [TargetingModule.forRoot(), IdentityModule, SuppliersModule, RequestsModule, OrdersModule, NotificationsModule, VehiclesModule, DiscoveryModule, CatalogueModule.forRoot(), ReservationsModule, MarketplaceModule, AssistanceModule, MessagingModule]
       : []),
   ],
   controllers: [HealthController, DocsController],
   providers: [
-    // binds the requests module's fan-out seam to the suppliers module
-    ...(config.DATABASE_URL
-      ? [
-          SupplierTargetingAdapter,
-          { provide: SUPPLIER_TARGETING_PORT, useExisting: SupplierTargetingAdapter },
-          SchedulerRunner,
-        ]
-      : []),
+    /*
+      The fan-out seam is NOT provided here any more. A provider in this
+      array is invisible to RequestsModule, where FanOutReactor lives —
+      which is exactly how every part request came to be dropped. It is
+      a global module now; see targeting.module.ts.
+    */
+    ...(config.DATABASE_URL ? [SchedulerRunner] : []),
   ],
 })
 export class AppModule {}

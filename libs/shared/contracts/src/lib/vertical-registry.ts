@@ -31,7 +31,26 @@ export class VerticalRegistry {
   }
 
   all(): SupplierVertical[] {
-    return [...this.byKeyMap.values()];
+    /*
+      `Array.from`, NOT `[...map.values()]`.
+
+      The apps are webpack+SWC bundles, and SWC's loose downlevel rewrites
+      that spread as `[].concat(iterator)` — which appends the MapIterator
+      OBJECT instead of iterating it. `all()` then returned a one-element
+      array holding an iterator, so every `v.key` was undefined and every
+      `v.capabilities` was undefined too.
+
+      The damage was total and silent: fan-out threw "Cannot read
+      properties of undefined (reading 'includes')" on every part request,
+      so no supplier was ever targeted, and supplier registration rejected
+      valid verticals with `UNKNOWN_VERTICAL {"known":[null]}`. Both looked
+      like unrelated application bugs.
+
+      Third occurrence of this rewrite in this codebase — see
+      BullMqEventBus and messaging's attachment allow-list. The rule is
+      absolute: never spread a Set, a Map, or one of their iterators.
+    */
+    return Array.from(this.byKeyMap.values());
   }
 
   withCapability(capability: Capability): SupplierVertical[] {

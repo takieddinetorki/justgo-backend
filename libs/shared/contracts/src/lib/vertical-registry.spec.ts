@@ -70,3 +70,47 @@ describe('assertVerticalSatisfiesCapabilities', () => {
     expect(() => assertVerticalSatisfiesCapabilities(broken)).toThrow(/quoteFor/);
   });
 });
+
+/*
+  Regression: SWC's loose downlevel rewrote `[...map.values()]` in `all()`
+  as `[].concat(iterator)`, so the registry returned a single MapIterator
+  instead of the verticals. Every `.key` and `.capabilities` was undefined,
+  which broke fan-out ("Cannot read properties of undefined") and supplier
+  registration (`UNKNOWN_VERTICAL {"known":[null]}`) at the same time.
+
+  These assert the SHAPE of what comes back, not just the count — a
+  length check alone passes with one iterator in the array.
+*/
+describe('VerticalRegistry.all() returns verticals, not an iterator', () => {
+  const vertical = (key: string, capabilities: string[]) =>
+    ({ key, capabilities, label: key }) as unknown as SupplierVertical;
+
+  it('yields one entry per registered vertical, each with a usable key', () => {
+    const registry = new VerticalRegistry([
+      vertical('part_store', ['RECEIVES_PART_REQUESTS']),
+      vertical('workshop', ['BOOKS_SERVICES']),
+    ]);
+
+    const all = registry.all();
+    expect(all).toHaveLength(2);
+    expect(all.map((v) => v.key).sort()).toEqual(['part_store', 'workshop']);
+    for (const v of all) {
+      expect(typeof v.key).toBe('string');
+      expect(Array.isArray(v.capabilities)).toBe(true);
+    }
+  });
+
+  it('filters by capability without throwing on an undefined member', () => {
+    const registry = new VerticalRegistry([
+      vertical('part_store', ['RECEIVES_PART_REQUESTS']),
+      vertical('showroom', ['LISTS_VEHICLES']),
+    ]);
+
+    const capable = registry.withCapability('RECEIVES_PART_REQUESTS' as never);
+    expect(capable.map((v) => v.key)).toEqual(['part_store']);
+  });
+
+  it('is empty, not a one-element iterator, when nothing is registered', () => {
+    expect(new VerticalRegistry([]).all()).toEqual([]);
+  });
+});
