@@ -1,5 +1,5 @@
 import type { AccountId, SupplierId } from '@justgo/kernel';
-import type { RegisterSupplierDTO, SupplierDTO } from './dto';
+import type { RegisterSupplierDTO, SupplierDTO, UpdateFiscalIdentityDTO } from './dto';
 
 /**
  * Public port of the suppliers context (§6.1). The Quote Engine targets
@@ -11,6 +11,8 @@ export interface SuppliersPort {
   register(ownerAccountId: AccountId, input: RegisterSupplierDTO): Promise<SupplierDTO>;
   getById(id: SupplierId): Promise<SupplierDTO | null>;
   getByOwner(ownerAccountId: AccountId): Promise<SupplierDTO | null>;
+  /** The seller block an invoice needs. Owner-gated at the controller. */
+  updateFiscalIdentity(id: SupplierId, patch: UpdateFiscalIdentityDTO): Promise<SupplierDTO>;
   eligibleForPartRequest(verticalKeys: string[], categoryKey: string | null): Promise<SupplierId[]>;
 }
 

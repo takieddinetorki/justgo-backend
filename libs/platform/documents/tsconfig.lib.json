@@ -19,6 +19,9 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
+      "path": "../../shared/contracts/tsconfig.lib.json"
+    },
+    {
       "path": "../../crosscutting/media/tsconfig.lib.json"
     },
     {

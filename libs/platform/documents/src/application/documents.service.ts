@@ -12,12 +12,15 @@ import type {
   DocumentDTO,
   DocumentType,
   IssueDocumentInput,
+  IssueInvoiceInput,
   VerificationResult,
 } from '../contract/dto';
 import { DOCUMENT_SIGNER, type DocumentSigner } from '../contract/signer.port';
 import { PgDocumentsRepository } from '../infra/pg-documents.repository';
 import { Ed25519DocumentSigner, sha256Hex } from '../infra/ed25519-signer';
 import { renderDocument } from '../infra/pdf-renderer';
+import { renderInvoice } from '../infra/invoice-renderer';
+import { TVA_STANDARD } from './tax';
 
 export const DOCUMENTS_REPOSITORY = Symbol('DOCUMENTS_REPOSITORY');
 export const DOCUMENTS_CONFIG = Symbol('DOCUMENTS_CONFIG');
@@ -82,6 +85,74 @@ export class DocumentsService implements DocumentsPort {
           contentType: 'application/pdf',
         });
 
+        return {
+          bucket: this.config.bucket,
+          path,
+          bytes: sealed.bytes,
+          sha256: sha256Hex(sealed.bytes),
+          signature: sealed.signature ?? '',
+          algo: sealed.algo,
+          keyId: sealed.keyId,
+          format: sealed.format,
+        };
+      },
+    });
+  }
+
+  /**
+   * Issues a *facture*.
+   *
+   * REFUSES when the seller's fiscal identity is incomplete. An Algerian
+   * invoice without NIF, NIS, RC and article d'imposition is not a valid
+   * tax document, and emitting one anyway would hand the client
+   * something that looks official, carries our seal, and is worthless —
+   * a worse outcome than no invoice at all.
+   */
+  async issueInvoice(input: IssueInvoiceInput): Promise<DocumentDTO> {
+    const missing = (['nif', 'nis', 'rc', 'taxArticle', 'legalName'] as const).filter(
+      (k) => !input.seller[k] || String(input.seller[k]).trim() === '',
+    );
+    if (missing.length > 0) {
+      throw new ValidationError(
+        'Cannot issue an invoice: the seller’s fiscal identity is incomplete',
+        { missing },
+      );
+    }
+    if (input.lines.length === 0) {
+      throw new ValidationError('An invoice needs at least one line');
+    }
+
+    const rate = input.tvaRatePercent ?? TVA_STANDARD;
+    return this.repo.issue({
+      type: 'invoice',
+      series: SERIES.invoice,
+      year: new Date().getFullYear(),
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      issuedToAccountId: input.issuedToAccountId,
+      supplierId: input.supplierId,
+      // Frozen: the seller's identifiers and the prices as they stood on
+      // the day. An invoice must not change when a profile is edited.
+      payload: { ...input, tvaRatePercent: rate },
+      render: async ({ number, issuedAt }) => {
+        const pdf = await renderInvoice({
+          number,
+          issuedAt,
+          currency: input.currency,
+          seller: input.seller,
+          buyer: { name: input.buyerName, nif: input.buyerNif ?? null },
+          lines: input.lines,
+          tvaRatePercent: rate,
+          verifyUrl: `${this.config.verifyBaseUrl}/${number}`,
+        });
+        const sealed = await this.signer.seal(pdf);
+        const path = `invoice/${issuedAt.getFullYear()}/${number}.pdf`;
+        await this.media.putObject({
+          bucket: this.config.bucket,
+          path,
+          bytes: sealed.bytes,
+          contentType: 'application/pdf',
+        });
         return {
           bucket: this.config.bucket,
           path,

@@ -1,8 +1,17 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { BusinessRuleError, type AccountId, type SupplierId } from '@justgo/kernel';
+import {
+  BusinessRuleError,
+  NotFoundError,
+  type AccountId,
+  type SupplierId,
+} from '@justgo/kernel';
 import { VerticalRegistry } from '@justgo/contracts';
 import type { SuppliersPort } from '../contract/suppliers.port';
-import type { RegisterSupplierDTO, SupplierDTO } from '../contract/dto';
+import type {
+  RegisterSupplierDTO,
+  SupplierDTO,
+  UpdateFiscalIdentityDTO,
+} from '../contract/dto';
 import { PgSuppliersRepository } from '../infra/pg-suppliers.repository';
 
 export const SUPPLIERS_REPOSITORY = Symbol('SUPPLIERS_REPOSITORY');
@@ -50,4 +59,14 @@ export class SuppliersService implements SuppliersPort {
   ): Promise<SupplierId[]> {
     return this.repo.eligibleForPartRequest(verticalKeys, categoryKey);
   }
+
+  async updateFiscalIdentity(
+    id: SupplierId,
+    patch: UpdateFiscalIdentityDTO,
+  ): Promise<SupplierDTO> {
+    const updated = await this.repo.updateFiscalIdentity(id, patch);
+    if (!updated) throw new NotFoundError('Supplier', id);
+    return updated;
+  }
+
 }

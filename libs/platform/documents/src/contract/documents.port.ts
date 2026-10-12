@@ -1,5 +1,10 @@
 import type { AccountId, Uuid } from '@justgo/kernel';
-import type { DocumentDTO, IssueDocumentInput, VerificationResult } from './dto';
+import type {
+  DocumentDTO,
+  IssueDocumentInput,
+  IssueInvoiceInput,
+  VerificationResult,
+} from './dto';
 
 /**
  * Public port of the documents context (§6.1). Other modules render
@@ -8,6 +13,13 @@ import type { DocumentDTO, IssueDocumentInput, VerificationResult } from './dto'
  */
 export interface DocumentsPort {
   issue(input: IssueDocumentInput): Promise<DocumentDTO>;
+  /**
+   * Issues a *facture*. Separate from `issue` because an invoice is a
+   * tax document: it needs the seller's fiscal identifiers and priced
+   * lines, and it REFUSES rather than emitting something that looks
+   * official without them.
+   */
+  issueInvoice(input: IssueInvoiceInput): Promise<DocumentDTO>;
   /** A short-lived signed URL for the stored bytes. Never a public link. */
   downloadUrl(callerAccountId: AccountId, documentId: Uuid): Promise<string>;
   listForAccount(accountId: AccountId, limit?: number): Promise<DocumentDTO[]>;

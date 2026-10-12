@@ -1,7 +1,8 @@
 import { Module, type DynamicModule } from '@nestjs/common';
-import { SUPPLIER_TARGETING_PORT } from '@justgo/contracts';
+import { SELLER_IDENTITY_PORT, SUPPLIER_TARGETING_PORT } from '@justgo/contracts';
 import { SuppliersModule } from '@justgo/suppliers';
 import { SupplierTargetingAdapter } from './supplier-targeting.adapter';
+import { SellerIdentityAdapter } from './seller-identity.adapter';
 
 /**
  * Binds the requests module's fan-out seam to the suppliers module
@@ -28,6 +29,11 @@ import { SupplierTargetingAdapter } from './supplier-targeting.adapter';
  * `suppliers` may depend on the other (§4.7), so the app is the only
  * place allowed to join them. Swapping this for a network client is how
  * either module gets extracted later (§4.8).
+ *
+ * It now carries every such seam, not just targeting — `documents` needs
+ * the seller's fiscal identity from `suppliers` on exactly the same
+ * terms. One global module keeps them together rather than scattering a
+ * module per join.
  */
 @Module({})
 export class TargetingModule {
@@ -39,8 +45,10 @@ export class TargetingModule {
       providers: [
         SupplierTargetingAdapter,
         { provide: SUPPLIER_TARGETING_PORT, useExisting: SupplierTargetingAdapter },
+        SellerIdentityAdapter,
+        { provide: SELLER_IDENTITY_PORT, useExisting: SellerIdentityAdapter },
       ],
-      exports: [SUPPLIER_TARGETING_PORT],
+      exports: [SUPPLIER_TARGETING_PORT, SELLER_IDENTITY_PORT],
     };
   }
 }

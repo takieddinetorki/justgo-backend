@@ -69,3 +69,36 @@ export interface VerificationResult {
   /** Plain-language summary for a human holding a printout. */
   message: string;
 }
+
+/** Fiscal identity of the seller. Every field is legally required. */
+export interface SellerIdentity {
+  legalName: string;
+  address: string | null;
+  city: string | null;
+  country: string | null;
+  nif: string;
+  nis: string;
+  rc: string;
+  taxArticle: string;
+}
+
+export interface InvoiceLineInput {
+  description: string;
+  quantity: number;
+  /** Unit price INCLUDING tax, minor units. See application/tax.ts. */
+  unitTtcMinor: number;
+}
+
+export interface IssueInvoiceInput {
+  subjectType: string;
+  subjectId: string;
+  issuedToAccountId: string;
+  supplierId: string;
+  seller: SellerIdentity;
+  buyerName: string;
+  buyerNif?: string | null;
+  currency: string;
+  lines: InvoiceLineInput[];
+  /** Defaults to the Algerian standard rate. */
+  tvaRatePercent?: number;
+}

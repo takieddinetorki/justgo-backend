@@ -24,6 +24,14 @@ class FakeRepo {
       isOpen: true,
       isMultiBranch: false,
       city: input.city ?? null,
+      // Fiscal identity starts empty: a new supplier cannot be invoiced
+      // until it completes its profile, which is the point.
+      address: null,
+      legalName: null,
+      nif: null,
+      nis: null,
+      rc: null,
+      taxArticle: null,
       country: input.country ?? null,
       createdAt: new Date().toISOString(),
     };

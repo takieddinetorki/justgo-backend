@@ -13,6 +13,12 @@ interface SupplierRow {
   is_multi_branch: boolean;
   city: string | null;
   country: string | null;
+  address: string | null;
+  legal_name: string | null;
+  nif: string | null;
+  nis: string | null;
+  rc: string | null;
+  tax_article: string | null;
   created_at: Date;
 }
 
@@ -26,12 +32,19 @@ function toDTO(row: SupplierRow): SupplierDTO {
     isMultiBranch: row.is_multi_branch,
     city: row.city,
     country: row.country,
+    address: row.address,
+    legalName: row.legal_name,
+    nif: row.nif,
+    nis: row.nis,
+    rc: row.rc,
+    taxArticle: row.tax_article,
     createdAt: row.created_at.toISOString(),
   };
 }
 
 const SELECT = `select id, owner_account_id, vertical_key, name, is_open,
-  is_multi_branch, city, country, created_at from suppliers.suppliers`;
+  is_multi_branch, city, country, address, legal_name, nif, nis, tax_article, rc,
+  created_at from suppliers.suppliers`;
 
 export class PgSuppliersRepository {
   private readonly outbox: PgOutboxStore;
@@ -56,7 +69,8 @@ export class PgSuppliersRepository {
                       else ST_SetSRID(ST_MakePoint($7::float8, $6::float8), 4326)::geography end,
                  $8)
          returning id, owner_account_id, vertical_key, name, is_open,
-                   is_multi_branch, city, country, created_at`,
+                   is_multi_branch, city, country, address, legal_name, nif, nis,
+                   tax_article, rc, created_at`,
         [
           ownerAccountId,
           input.verticalKey,
@@ -133,4 +147,47 @@ export class PgSuppliersRepository {
     );
     return res.rows.map((r) => asId<SupplierId>(r.id));
   }
+
+  /**
+   * Updates only the fiscal fields, and only those actually supplied.
+   * COALESCE rather than a dynamic SQL builder: a partial patch must not
+   * blank the identifiers it did not mention, and an invoice depends on
+   * all of them being present.
+   */
+  async updateFiscalIdentity(
+    id: string,
+    patch: {
+      legalName?: string;
+      address?: string;
+      nif?: string;
+      nis?: string;
+      rc?: string;
+      taxArticle?: string;
+    },
+  ): Promise<SupplierDTO | null> {
+    const res = await this.pool.query<SupplierRow>(
+      `update suppliers.suppliers set
+         legal_name  = coalesce($2, legal_name),
+         address     = coalesce($3, address),
+         nif         = coalesce($4, nif),
+         nis         = coalesce($5, nis),
+         rc          = coalesce($6, rc),
+         tax_article = coalesce($7, tax_article)
+       where id = $1
+       returning id, owner_account_id, vertical_key, name, is_open,
+                 is_multi_branch, city, country, address, legal_name, nif, nis,
+                 tax_article, rc, created_at`,
+      [
+        id,
+        patch.legalName ?? null,
+        patch.address ?? null,
+        patch.nif ?? null,
+        patch.nis ?? null,
+        patch.rc ?? null,
+        patch.taxArticle ?? null,
+      ],
+    );
+    return res.rows[0] ? toDTO(res.rows[0]) : null;
+  }
+
 }

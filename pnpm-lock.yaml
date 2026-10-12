@@ -503,6 +503,9 @@ importers:
       '@justgo/auth':
         specifier: workspace:*
         version: link:../../shared/auth
+      '@justgo/contracts':
+        specifier: workspace:*
+        version: link:../../shared/contracts
       '@justgo/events':
         specifier: workspace:*
         version: link:../../shared/events
