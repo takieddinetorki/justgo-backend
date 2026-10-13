@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentAuth, RequirePermissions, type AuthContext } from '@justgo/auth';
+import { Throttle } from '@nestjs/throttler';
 import { asId, NotFoundError, ValidationError, type Uuid } from '@justgo/kernel';
 import { MESSAGING_PORT, type MessagingPort } from './contract/messaging.port';
 import type { ConversationDTO, MessageDTO, MessagePage } from './contract/dto';
@@ -79,6 +80,12 @@ export class MessagingController {
     return this.messaging.listMessages(auth.accountId, asId<Uuid>(id), parsed.data);
   }
 
+  /*
+    Higher than the other writes: a real conversation is bursty, and
+    someone typing fast should never meet a limit. Still bounded, because
+    each message notifies the person on the other end.
+  */
+  @Throttle({ default: { ttl: 60_000, limit: 120 } })
   @Post(':id/messages')
   @RequirePermissions('message.send')
   async send(

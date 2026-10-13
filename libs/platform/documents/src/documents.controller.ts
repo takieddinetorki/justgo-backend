@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentAuth, Public, RequirePermissions, type AuthContext } from '@justgo/auth';
+import { Throttle } from '@nestjs/throttler';
 import { asId, ValidationError, type Uuid } from '@justgo/kernel';
 import { DOCUMENTS_PORT, type DocumentsPort } from './contract/documents.port';
 import type { DocumentDTO, VerificationResult } from './contract/dto';
@@ -62,6 +63,16 @@ export class DocumentsController {
    * Returns status and authenticity only: no amounts, no parties. Numbers
    * are guessable and this endpoint is open to the world.
    */
+  /*
+    Tight, because document numbers are SEQUENTIAL: FA-2026-000001,
+    000002, and so on. The endpoint is public by design — it is the QR
+    target printed on every document — and returns only authenticity and
+    status, never amounts or parties. But without a limit, walking the
+    series would still tell an outsider exactly how many invoices the
+    business has issued and when it started. Nobody verifies twenty
+    documents a minute by hand.
+  */
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Get('verify/:number')
   @Public()
   async verify(@Param('number') number: string): Promise<VerificationResult> {
@@ -73,6 +84,16 @@ export class DocumentsController {
    * against the bytes we sealed. Proves their copy is the real one rather
    * than asking them to trust our screen.
    */
+  /*
+    Tight, because document numbers are SEQUENTIAL: FA-2026-000001,
+    000002, and so on. The endpoint is public by design — it is the QR
+    target printed on every document — and returns only authenticity and
+    status, never amounts or parties. But without a limit, walking the
+    series would still tell an outsider exactly how many invoices the
+    business has issued and when it started. Nobody verifies twenty
+    documents a minute by hand.
+  */
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @Post('verify/:number')
   @Public()
   async verifyFile(

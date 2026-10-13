@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { EventsModule } from '@justgo/events';
 import { AuthModule } from '@justgo/auth';
@@ -28,6 +30,7 @@ import { DocsController } from './docs.controller';
 import { ENABLED_VERTICALS } from './verticals';
 import { TargetingModule } from './targeting.module';
 import { SchedulerRunner } from './scheduler.runner';
+import { CallerThrottlerGuard } from './throttle.guard';
 
 const config = loadConfig();
 
@@ -46,6 +49,44 @@ const config = loadConfig();
         // NOTE: no pino transport here — worker-thread transports break in
         // the webpack bundle. Pipe through pino-pretty externally in dev:
         //   nx serve @justgo-backend/api | npx pino-pretty
+      },
+    }),
+    /*
+      Rate limiting (see throttle.guard.ts for how a caller is identified).
+
+      THE DEFAULT IS SET BY WHAT THE SHIPPED APP ALREADY DOES, not by taste.
+      It polls instead of using Realtime — the integrator test traffic shows
+      2 666 calls to GET /v1/orders alone — so the baseline has to sit well
+      above a polling client or the limit becomes an outage. Tighter limits
+      are applied per route, where either enumeration is the risk (public
+      reads) or spam costs other users something (content creation).
+
+      In-memory storage, deliberately: one API container runs today, and a
+      Redis-backed store would mean a third-party package for a control that
+      is better off with no new dependencies. IF A SECOND API REPLICA IS EVER
+      ADDED, every limit here silently doubles — move the storage to Redis in
+      the same change.
+    */
+    ThrottlerModule.forRoot({
+      /*
+        ONE throttler, overridden per route with @Throttle({ default: … }).
+
+        Not three named ones. The guard loops over EVERY named throttler for
+        every request and falls back to that throttler root limit when a
+        route does not override it — so adding a `strict: 20` alongside a
+        `default: 600` would cap the entire API at 20 requests a minute,
+        including the polling the app already does. Checked against the
+        guard source rather than assumed.
+      */
+      throttlers: [{ name: 'default', ttl: 60_000, limit: 600 }],
+      /*
+        The probe itself must never be throttled: a load balancer or an
+        uptime check hits it constantly, and a 429 there reads as the service
+        being down.
+      */
+      skipIf: (ctx) => {
+        const path: string = ctx.switchToHttp().getRequest()?.path ?? '';
+        return path === '/v1/health' || path.startsWith('/v1/docs');
       },
     }),
     EventsModule.forRoot({ redisUrl: config.REDIS_URL }),
@@ -88,6 +129,13 @@ const config = loadConfig();
       a global module now; see targeting.module.ts.
     */
     ...(config.DATABASE_URL ? [SchedulerRunner] : []),
+    /*
+      Registered here rather than inside AuthModule so the composition root
+      owns it, like every other cross-cutting concern. Order against
+      RbacGuard does not matter: the tracker reads the raw Authorization
+      header, never the AuthContext that guard attaches.
+    */
+    { provide: APP_GUARD, useClass: CallerThrottlerGuard },
   ],
 })
 export class AppModule {}

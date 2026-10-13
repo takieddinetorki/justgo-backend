@@ -1,6 +1,7 @@
 import { Body, Controller, Headers, Post } from '@nestjs/common';
 import { z } from 'zod';
 import { RequirePermissions } from '@justgo/auth';
+import { Throttle } from '@nestjs/throttler';
 import { UnauthenticatedError, ValidationError } from '@justgo/kernel';
 import type { SessionDTO } from './contract/dto';
 import { SessionService } from './application/session.service';
@@ -31,6 +32,17 @@ const sessionSchema = z
 export class SessionController {
   constructor(private readonly sessions: SessionService) {}
 
+  /*
+    The exchange already requires a valid GoTrue token, so this is not an
+    authentication gate. It is a bound on the cost of a client stuck in a
+    refresh loop — which has happened: the shipped app does not re-exchange
+    after a GoTrue refresh and produced 497 consecutive 401s.
+
+    Keyed on the UPSTREAM token here, so a legitimate sign-in and refresh
+    cycle gets its own bucket rather than sharing one with every other user
+    behind the same carrier NAT.
+  */
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Post('session')
   @RequirePermissions()
   async createSession(

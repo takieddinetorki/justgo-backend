@@ -1,6 +1,7 @@
 import { Body, Controller, Inject, Post } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentAuth, RequirePermissions, type AuthContext } from '@justgo/auth';
+import { Throttle } from '@nestjs/throttler';
 import { ValidationError } from '@justgo/kernel';
 import { MEDIA_PORT, type MediaPort, type SignedUpload } from './contract/media.port';
 import { OCR_PROVIDER, type OcrProvider, type RegistrationDraft } from './contract/ocr.port';
@@ -40,6 +41,11 @@ export class MediaController {
     @Inject(OCR_PROVIDER) private readonly ocr: OcrProvider,
   ) {}
 
+  /*
+    Each call hands out a pre-signed PUT — a writable handle into a bucket.
+    Unbounded, it is a way to fill our storage from a single account.
+  */
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Post('media/uploads')
   @RequirePermissions()
   async createUpload(@CurrentAuth() auth: AuthContext, @Body() body: unknown): Promise<SignedUpload> {

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, Patch, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentAuth, hasPermission, RequirePermissions, type AuthContext } from '@justgo/auth';
+import { Throttle } from '@nestjs/throttler';
 import { asId, NotFoundError, ValidationError, type Uuid } from '@justgo/kernel';
 import { RECLAMATIONS_PORT, type CaseActor, type ReclamationsPort } from './contract/reclamations.port';
 import type { CaseDTO, CaseMessageDTO, CasePage } from './contract/dto';
@@ -66,6 +67,12 @@ export class ReclamationsController {
     };
   }
 
+  /*
+    Each filing burns a reference out of the sequence and lands in a
+    business queue, so a loop here is both noise for them and a hole in
+    our own numbering.
+  */
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Post()
   @HttpCode(201)
   @RequirePermissions('reclamation.file')

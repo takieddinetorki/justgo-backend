@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentAuth, RequirePermissions, type AuthContext } from '@justgo/auth';
+import { Throttle } from '@nestjs/throttler';
 import { asId, ForbiddenError, NotFoundError, ValidationError, type Uuid } from '@justgo/kernel';
 import { SOCIAL_PORT, type SocialPort } from './contract/social.port';
 import type { CommentPage, PostCommentDTO, PostDTO, PostPage } from './contract/dto';
@@ -87,6 +88,12 @@ export class SocialController {
     });
   }
 
+  /*
+    A spam POST reaches everyone who opens the feed, which is what makes
+    this worth a tighter limit than a read. Thirty a minute is far above
+    anyone composing real posts and far below anything worth automating.
+  */
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Post('posts')
   @RequirePermissions('post.publish')
   async publish(@CurrentAuth() auth: AuthContext, @Body() body: unknown): Promise<PostDTO> {
@@ -147,6 +154,8 @@ export class SocialController {
     return this.social.listComments(asId<Uuid>(id), parsed.data);
   }
 
+  /* Same reasoning as publishing: a comment is visible to everyone. */
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Post('posts/:id/comments')
   @HttpCode(201)
   @RequirePermissions('post.interact')
