@@ -485,6 +485,188 @@ async function main() {
     check('only the author may retract', theirDelete.status >= 400, `status ${theirDelete.status}`);
   }
 
+  section('reclamations');
+  const filed = await call('POST', '/v1/reclamations', {
+    token: client.token,
+    body: {
+      category: 'wrong_part',
+      title: `Mauvaise référence ${STAMP}`,
+      body: 'La référence livrée ne correspond pas au devis.',
+      respondentSupplierId: supplierId,
+      ...(orderId ? { subjectType: 'order', subjectId: orderId } : {}),
+    },
+  });
+  check('complaint filed', /^RCL-/.test(filed.data?.reference ?? ''),
+    `${filed.status} ${filed.data?.reference ?? JSON.stringify(filed.data).slice(0, 140)}`);
+  const caseId = filed.data?.id;
+
+  if (caseId) {
+    const mine = await call('GET', '/v1/reclamations', { token: client.token });
+    check('it appears in my complaints',
+      (mine.data?.items ?? []).some((c) => c.id === caseId), `status ${mine.status}`);
+
+    const theirs = await call('GET', '/v1/reclamations', { token: seller.token });
+    check('and in the queue of the business it is against',
+      (theirs.data?.items ?? []).some((c) => c.id === caseId), `status ${theirs.status}`);
+
+    const outsider = await makeUser('outsider3');
+    const peek = await call('GET', `/v1/reclamations/${caseId}`, { token: outsider.token });
+    check('an outsider gets 404, not 403', peek.status === 404, `status ${peek.status}`);
+
+    const reply = await call('POST', `/v1/reclamations/${caseId}/messages`, {
+      token: seller.token,
+      body: { body: 'Nous renvoyons la bonne pièce.' },
+    });
+    check('the business can answer', reply.status === 201 && reply.data?.authorRole === 'respondent',
+      `status ${reply.status} role ${reply.data?.authorRole}`);
+
+    const sneaky = await call('POST', `/v1/reclamations/${caseId}/messages`, {
+      token: client.token,
+      body: { body: 'note', internal: true },
+    });
+    check('only ops may leave an internal note', sneaky.status === 403, `status ${sneaky.status}`);
+
+    const thread = await call('GET', `/v1/reclamations/${caseId}/messages`, {
+      token: client.token,
+    });
+    check('the claimant sees the reply', (thread.data?.items ?? []).length === 1,
+      `${thread.data?.items?.length} message(s)`);
+
+    const noReason = await call('PATCH', `/v1/reclamations/${caseId}`, {
+      token: seller.token,
+      body: { status: 'resolved' },
+    });
+    check('closing without a resolution is refused', noReason.status >= 400,
+      `status ${noReason.status}`);
+
+    const claimantDecides = await call('PATCH', `/v1/reclamations/${caseId}`, {
+      token: client.token,
+      body: { status: 'resolved', resolution: 'je decide moi-meme' },
+    });
+    check('a claimant cannot resolve their own complaint', claimantDecides.status === 403,
+      `status ${claimantDecides.status}`);
+
+    const resolved = await call('PATCH', `/v1/reclamations/${caseId}`, {
+      token: seller.token,
+      body: { status: 'resolved', resolution: 'Bonne pièce expédiée le lendemain.' },
+    });
+    check('the business can resolve it',
+      resolved.data?.status === 'resolved' && Boolean(resolved.data?.closedAt),
+      `status ${resolved.status} -> ${resolved.data?.status}`);
+
+    const reopen = await call('PATCH', `/v1/reclamations/${caseId}`, {
+      token: seller.token,
+      body: { status: 'under_review' },
+    });
+    check('a closed complaint cannot be reopened', reopen.status === 409,
+      `status ${reopen.status}`);
+
+    const afterClose = await call('POST', `/v1/reclamations/${caseId}/messages`, {
+      token: client.token,
+      body: { body: 'encore un mot' },
+    });
+    check('a closed complaint stops accepting messages', afterClose.status >= 400,
+      `status ${afterClose.status}`);
+  }
+
+  section('driver identity & KYC');
+  const driver = await makeUser('driver');
+  const applied = await call('POST', '/v1/driver', {
+    token: driver.token,
+    body: { fullName: `Karim Benali ${STAMP}`, licenceExpiresOn: '2031-04-30' },
+  });
+  check('driver profile created', applied.status === 201 && applied.data?.status === 'draft',
+    `${applied.status} ${applied.data?.status ?? JSON.stringify(applied.data).slice(0, 140)}`);
+  const driverId = applied.data?.id;
+
+  if (driverId) {
+    const again = await call('POST', '/v1/driver', {
+      token: driver.token,
+      body: { fullName: 'Someone Else' },
+    });
+    check('re-applying returns the same profile', again.data?.id === driverId,
+      `${again.data?.id} vs ${driverId}`);
+
+    check('it reports which documents are still needed',
+      JSON.stringify(applied.data?.missingDocuments) === JSON.stringify(['licence_front', 'selfie']),
+      JSON.stringify(applied.data?.missingDocuments));
+
+    const tooSoon = await call('POST', '/v1/driver/me/submit', { token: driver.token });
+    check('submitting with no documents is refused', tooSoon.status === 422,
+      `status ${tooSoon.status} ${tooSoon.data?.error?.code}`);
+
+    const upload = await call('POST', '/v1/media/uploads', {
+      token: driver.token,
+      body: { bucket: 'driver-documents', filename: 'licence.jpg', contentType: 'image/jpeg' },
+    });
+    check('a driver-documents upload URL is issued', Boolean(upload.data?.uploadUrl),
+      `status ${upload.status}`);
+
+    const stolen = await call('POST', '/v1/driver/me/documents', {
+      token: driver.token,
+      body: { kind: 'licence_front', bucket: 'driver-documents', path: 'another-account/l.jpg' },
+    });
+    check("somebody else's licence photo is refused", stolen.status === 403,
+      `status ${stolen.status}`);
+
+    const wrongBucket = await call('POST', '/v1/driver/me/documents', {
+      token: driver.token,
+      body: { kind: 'selfie', bucket: 'avatars', path: upload.data?.path ?? 'x' },
+    });
+    check('a KYC document from the wrong bucket is refused', wrongBucket.status >= 400,
+      `status ${wrongBucket.status}`);
+
+    if (upload.data?.path) {
+      for (const kind of ['licence_front', 'selfie']) {
+        const attached = await call('POST', '/v1/driver/me/documents', {
+          token: driver.token,
+          body: { kind, bucket: 'driver-documents', path: upload.data.path },
+        });
+        check(`${kind} attached`, attached.status < 400, `status ${attached.status}`);
+      }
+
+      const complete = await call('GET', '/v1/driver/me', { token: driver.token });
+      check('nothing is missing now', (complete.data?.missingDocuments ?? ['x']).length === 0,
+        JSON.stringify(complete.data?.missingDocuments));
+
+      const offline = await call('PATCH', '/v1/driver/me/availability', {
+        token: driver.token,
+        body: { isOnline: true, lat: 36.7538, lng: 3.0588 },
+      });
+      check('an unverified driver cannot go online', offline.status === 403,
+        `status ${offline.status}`);
+
+      const submitted = await call('POST', '/v1/driver/me/submit', { token: driver.token });
+      check('submitted for review', submitted.data?.status === 'pending_review',
+        `status ${submitted.status} -> ${submitted.data?.status}`);
+
+      const frozen = await call('PATCH', '/v1/driver/me', {
+        token: driver.token,
+        body: { licenceNumber: 'CHANGED-AFTER-SUBMIT' },
+      });
+      check('details freeze while under review', frozen.status === 422,
+        `status ${frozen.status} ${frozen.data?.error?.code}`);
+
+      const notOps = await call('GET', '/v1/driver/review', { token: driver.token });
+      check('the ops queue is not open to a driver', notOps.status === 403,
+        `status ${notOps.status}`);
+
+      /*
+        The verification DECISION needs platform.admin, which no account in
+        this run has — granting it would mean handing a smoke test the keys
+        to every document in the system. So the decision path is exercised
+        only as far as it can be without ops: everything above it is checked,
+        and the 403 below proves the gate itself is wired.
+      */
+      const decide = await call('PATCH', `/v1/driver/${driverId}/verification`, {
+        token: driver.token,
+        body: { status: 'verified' },
+      });
+      check('a driver cannot verify themselves', decide.status === 403,
+        `status ${decide.status}`);
+    }
+  }
+
   section('summary');
   console.log(`  ${passed} passed, ${failures.length} failed`);
   if (failures.length > 0) {

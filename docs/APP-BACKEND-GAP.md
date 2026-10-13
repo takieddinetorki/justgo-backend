@@ -11,6 +11,66 @@ disagree, trust the logs.
 
 ---
 
+## 0. Status — updated 2026-10-13
+
+Everything in §3 below is now **built, deployed and verified on
+`168.231.87.48`**, except one piece that is deliberately not built.
+
+| § | Feature | State |
+|---|---|---|
+| 3.1 | Services Directory | **done** — `GET /v1/discovery/directory`, a separate route so the shipped APK is not broken |
+| 3.2 | Social feed | **done** — `/v1/feed`, `/v1/posts`, likes, comments |
+| 3.3 | Messaging | **done** — conversations, text / photo / voice, read receipts |
+| 3.4 | Reclamations | **done** — case state machine, thread, evidence, internal ops notes |
+| 3.5 | Driver — identity + KYC | **done** — apply, documents, submit, ops review, availability |
+| 3.5 | Driver — **earnings** | **NOT BUILT, on purpose** — see below |
+| 4.1 | Image upload | fixed; buckets created and scripted |
+
+Also built along the way, because the invoice needed them:
+
+- **Documents** — sealed PDFs (Ed25519 + SHA-256), public verification,
+  administrative voiding. Invoice, devis, bon de commande, reservation
+  confirmation.
+- **Order lifecycle** — `PATCH /v1/orders/{id}/status` and
+  `POST /v1/orders/{id}/cancel`. Before this, nothing advanced an order past
+  `created`, so `completed` was unreachable.
+- **`scripts/smoke.mjs`** — an end-to-end test against the real deployment.
+  It found four defects on its first run that the unit suite could not see.
+
+### The one thing that is blocked: driver earnings
+
+`DriverEarningsScreen` ships in the app. It has no backend and will not get
+one until three questions are answered, because every one of them changes
+what a driver is owed:
+
+1. **Who sets the price of a roadside job** — the driver, the platform, or a
+   tariff per service type?
+2. **What commission does JustGo take**, and is it a percentage, a flat fee
+   per job, or a subscription?
+3. **When is money captured** — on dispatch, on completion, or on a payout
+   run? And by whom: us, or cash in hand between driver and customer?
+
+These are spec §21 #3/#4 and they are **product decisions, not technical
+ones**. A number invented here would be acted on by a real driver and then
+contradicted by the first real payout run, which is worse than an empty
+screen. The driver schema deliberately stops at who may drive, not what they
+are owed.
+
+Everything up to that line exists: a verified driver can go online with a
+position, which is what dispatch needs.
+
+### Still open from §4–5
+
+- **4.2** vehicle requirement on reservations — still needs the product
+  decision (one line of seed either way).
+- **4.3** the app does not re-exchange its session after a GoTrue refresh —
+  **app-side**, backend needs nothing. 497 × 401 in the logs.
+- **4.4** the app polls instead of using Realtime — app-side.
+- **§5** the package id is still `com.example.just_go`, which Google Play
+  rejects and which cannot be changed after release.
+
+---
+
 ## 1. Headline
 
 The build adds a whole **community / social product** — Services
@@ -198,6 +258,9 @@ before any store submission.
 7. **Driver vertical** — largest, and partly blocked on payments (Phase
    4 / spec §21). Do not start the earnings half before the pricing and
    commission model is settled.
+
+**Items 3–7 are done as of 2026-10-13**, other than driver earnings. See §0
+for what remains and for the three questions that block it.
 
 None of items 3–7 exist in the spec's §19 build plan. They are **new
 scope beyond Phase 4**, and the spec should be amended rather than having

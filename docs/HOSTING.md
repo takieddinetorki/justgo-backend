@@ -114,8 +114,29 @@ Run end-to-end against the public IP, in this order:
 | `GET /v1/supplier/requests` with supplier session | 200 |
 | `GET /v1/supplier/requests` with client session | **403** — as designed |
 
-The database is migrated (17 migrations) and seeded with roles,
+The database is migrated (26 migrations) and seeded with roles,
 permissions, verticals and service types.
+
+### Re-verify it yourself in one command
+
+`scripts/smoke.mjs` walks the whole product against a running deployment —
+auth exchange, the part-request fan-out, the order lifecycle through to the
+sealed facture, messaging with attachments, the social feed, complaints and
+driver KYC — and prints PASS or FAIL per check.
+
+```sh
+cd /opt/justgo/justgo-backend
+ANON=$(grep -E '^SUPABASE_ANON_KEY=' .env.vps | cut -d= -f2- | tr -d '"')
+API_URL=http://127.0.0.1:3100 GOTRUE_URL=http://127.0.0.1:8100   ANON_KEY="$ANON" node scripts/smoke.mjs
+```
+
+It exits non-zero if anything failed, so it can gate a deploy. It creates
+throwaway accounts on each run with random passwords, so point it only at a
+development deployment.
+
+**Run it after every deploy.** Three defects in this codebase were invisible
+to the unit suite and appeared only in the bundled build; this is what
+catches that class of bug.
 
 ---
 

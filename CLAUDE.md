@@ -18,6 +18,22 @@ truth). This file is the working summary; keep both in sync as Open Questions
   integrator).
 - **Session issuance is done** — see below. The Phase-1 loose end about
   hand-minted supplier tokens is closed.
+- **Beyond the spec (2026-10-13)**, driven by what the shipped APK contains
+  and `docs/APP-BACKEND-GAP.md`: `documents` (sealed PDFs — invoice, devis,
+  bon de commande, reservation confirmation, with public verification and
+  administrative voiding), the Services Directory, `messaging`, `social`,
+  `reclamations`, `drivers` (identity + KYC only), and the order lifecycle
+  endpoints without which `completed` was unreachable. None of this is in
+  the §19 build plan; the spec should be amended rather than surprised.
+- **`scripts/smoke.mjs` runs against a live deployment**, and is the gate
+  that matters. Three defects here were invisible to jest and appeared only
+  in the webpack bundle (SWC Set-spread, an incomplete outbox schema list, a
+  font encoding error inside a reactor); the smoke test found four more on
+  its first run. Run it after every deploy:
+  `API_URL=… GOTRUE_URL=… ANON_KEY=… node scripts/smoke.mjs`
+- **Driver earnings is deliberately unbuilt**, not forgotten: it needs the
+  pricing, commission and capture decisions in spec §21 #3/#4. See
+  `docs/APP-BACKEND-GAP.md` §0 for the three questions.
 - **Next: Phase 4** — payments (provider port + sandbox, ledger,
   commission), real notification channels, analytics read models,
   multi-branch, multi-market/currency, k6 load tests to the §16 targets,
