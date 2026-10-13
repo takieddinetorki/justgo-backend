@@ -77,10 +77,20 @@ verify_dump() {
 }
 
 if [[ "${1:-}" == "--verify" ]]; then
-  newest=$(find "$DEST" -maxdepth 1 -name 'justgo-*.sql.gz' -printf '%T@ %p\n' 2>/dev/null \
-    | sort -rn | head -1 | cut -d' ' -f2-)
+  # The globals file is also named justgo-*.sql.gz, so it has to be excluded
+  # or this picks the 1.7 KB roles dump and fails it against the database
+  # checks. The write path below already excludes it; this branch did not.
+  newest=$(find "$DEST" -maxdepth 1 -name 'justgo-*.sql.gz' ! -name '*.globals.sql.gz' \
+    -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
   [[ -n "$newest" ]] || die "no backup found in $DEST"
   verify_dump "$newest"
+  # A database dump with no globals beside it restores into a database whose
+  # grants and RLS policies reference roles that do not exist.
+  globals="${newest%.sql.gz}.globals.sql.gz"
+  [[ -f "$globals" ]] || die "no globals dump beside $(basename "$newest")"
+  gzip -t "$globals" || die "$globals is not a valid gzip stream"
+  gzip -dc "$globals" | grep -q 'CREATE ROLE' || die "$globals contains no roles"
+  log "verified $(basename "$globals")"
   log "newest backup is $(( ( $(date +%s) - $(stat -c%Y "$newest") ) / 3600 )) hours old"
   exit 0
 fi
