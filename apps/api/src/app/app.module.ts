@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { EventsModule } from '@justgo/events';
 import { AuthModule } from '@justgo/auth';
@@ -30,7 +30,7 @@ import { DocsController } from './docs.controller';
 import { ENABLED_VERTICALS } from './verticals';
 import { TargetingModule } from './targeting.module';
 import { SchedulerRunner } from './scheduler.runner';
-import { CallerThrottlerGuard } from './throttle.guard';
+import { callerTracker } from './throttle.guard';
 
 const config = loadConfig();
 
@@ -79,6 +79,10 @@ const config = loadConfig();
         guard source rather than assumed.
       */
       throttlers: [{ name: 'default', ttl: 60_000, limit: 600 }],
+      // Per caller, not per address — see throttle.guard.ts. Passed as an
+      // option rather than overridden in a subclass, because subclassing
+      // ThrottlerGuard crash-loops the bundle (same file explains why).
+      getTracker: (req) => callerTracker(req as never),
       /*
         The probe itself must never be throttled: a load balancer or an
         uptime check hits it constantly, and a 429 there reads as the service
@@ -135,7 +139,7 @@ const config = loadConfig();
       RbacGuard does not matter: the tracker reads the raw Authorization
       header, never the AuthContext that guard attaches.
     */
-    { provide: APP_GUARD, useClass: CallerThrottlerGuard },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}

@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import { CallerThrottlerGuard } from './throttle.guard';
+import { callerTracker } from './throttle.guard';
 
 /*
   The tracker is the whole guard. If it returns one value for many callers the
@@ -7,23 +7,16 @@ import { CallerThrottlerGuard } from './throttle.guard';
   limit does nothing at all. Both failures are silent, which is why these exist.
 */
 
-class Probe extends CallerThrottlerGuard {
-  constructor() {
-    super({ throttlers: [] } as never, {} as never, {} as never);
-  }
-  track(req: Partial<Request>): Promise<string> {
-    return this.getTracker(req as Request);
-  }
-}
-
-const guard = new Probe();
+const guard = {
+  track: async (req: Partial<Request>): Promise<string> => callerTracker(req as Request),
+};
 
 const withToken = (token: string): Partial<Request> => ({
   headers: { authorization: `Bearer ${token}` },
   ip: '154.246.135.170',
 });
 
-describe('CallerThrottlerGuard tracker', () => {
+describe('callerTracker', () => {
   it('gives each bearer token its own bucket', async () => {
     const a = await guard.track(withToken('token-aaa'));
     const b = await guard.track(withToken('token-bbb'));
