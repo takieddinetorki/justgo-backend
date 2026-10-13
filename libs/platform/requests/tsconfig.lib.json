@@ -19,16 +19,19 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
-      "path": "../../shared/auth/tsconfig.lib.json"
+      "path": "../../shared/kernel/tsconfig.lib.json"
     },
     {
       "path": "../../shared/events/tsconfig.lib.json"
     },
     {
+      "path": "../documents/tsconfig.lib.json"
+    },
+    {
       "path": "../../shared/contracts/tsconfig.lib.json"
     },
     {
-      "path": "../../shared/kernel/tsconfig.lib.json"
+      "path": "../../shared/auth/tsconfig.lib.json"
     }
   ],
   "exclude": ["jest.config.ts", "src/**/*.spec.ts", "src/**/*.test.ts"]

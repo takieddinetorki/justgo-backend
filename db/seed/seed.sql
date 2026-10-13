@@ -18,7 +18,7 @@ insert into identity.permissions (key) values
   ('quote.accept'), ('quote.refuse'),
   ('quote.submit'), ('supplier.requests.read'),
   ('supplier.profile.manage'), ('supplier.catalog.manage'),
-  ('order.read'), ('order.create'),
+  ('order.read'), ('order.create'), ('order.fulfil'), ('order.cancel'),
   ('reservation.create'), ('reservation.manage'),
   ('message.send'),
   ('listing.publish'), ('listing.contact'),
@@ -32,7 +32,7 @@ with role_perm(role_key, perm_key) as (
     ('client', 'vehicle.manage'),
     ('client', 'request.create'), ('client', 'request.read'), ('client', 'request.cancel'),
     ('client', 'quote.accept'), ('client', 'quote.refuse'),
-    ('client', 'order.read'), ('client', 'order.create'),
+    ('client', 'order.read'), ('client', 'order.create'), ('client', 'order.cancel'),
     ('client', 'reservation.create'),
     ('client', 'message.send'),
     ('client', 'listing.publish'), ('client', 'listing.contact'),
@@ -41,7 +41,7 @@ with role_perm(role_key, perm_key) as (
     ('fleet', 'vehicle.manage'),
     ('fleet', 'request.create'), ('fleet', 'request.read'), ('fleet', 'request.cancel'),
     ('fleet', 'quote.accept'), ('fleet', 'quote.refuse'),
-    ('fleet', 'order.read'), ('fleet', 'order.create'),
+    ('fleet', 'order.read'), ('fleet', 'order.create'), ('fleet', 'order.cancel'),
     ('fleet', 'reservation.create'),
     ('fleet', 'message.send'),
 
@@ -51,6 +51,7 @@ with role_perm(role_key, perm_key) as (
     ('supplier_owner', 'quote.submit'), ('supplier_owner', 'supplier.requests.read'),
     ('supplier_owner', 'supplier.profile.manage'), ('supplier_owner', 'supplier.catalog.manage'),
     ('supplier_owner', 'order.read'),
+    ('supplier_owner', 'order.fulfil'), ('supplier_owner', 'order.cancel'),
     ('supplier_owner', 'reservation.manage'),
     ('supplier_owner', 'message.send'),
 
@@ -58,6 +59,7 @@ with role_perm(role_key, perm_key) as (
     ('branch_manager', 'quote.submit'), ('branch_manager', 'supplier.requests.read'),
     ('branch_manager', 'supplier.catalog.manage'),
     ('branch_manager', 'order.read'),
+    ('branch_manager', 'order.fulfil'), ('branch_manager', 'order.cancel'),
     ('branch_manager', 'reservation.manage'),
     ('branch_manager', 'message.send'),
 

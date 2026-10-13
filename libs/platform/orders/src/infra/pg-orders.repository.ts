@@ -174,11 +174,40 @@ export class PgOrdersRepository {
     return toDTO(res.rows[0]);
   }
 
-  async changeStatus(orderId: OrderId, next: OrderStatus): Promise<OrderDTO> {
+  /**
+   * Move an order, under a row lock.
+   *
+   * `guard` restricts the row to a party of the order, so someone who is
+   * neither buyer nor seller gets a 404 rather than a 403 — the endpoint does
+   * not confirm the order exists to a stranger.
+   *
+   * The `for update` matters more than it looks now that completion issues an
+   * invoice. Two concurrent completes both read `in_progress` without it, and
+   * both would pass the state machine; with it the second one reads
+   * `completed` and the transition is refused. That is the first of three
+   * defences, the others being that `completed` is terminal and the unique
+   * index on (type, subject_type, subject_id) in the documents schema.
+   */
+  async changeStatus(
+    orderId: OrderId,
+    next: OrderStatus,
+    guard?: { clientAccountId?: AccountId; supplierId?: SupplierId },
+  ): Promise<OrderDTO> {
     return this.tx(async (client) => {
+      const params: unknown[] = [orderId];
+      let where = 'id = $1';
+      if (guard?.clientAccountId) {
+        params.push(guard.clientAccountId);
+        where += ` and client_account_id = $${params.length}`;
+      }
+      if (guard?.supplierId) {
+        params.push(guard.supplierId);
+        where += ` and supplier_id = $${params.length}`;
+      }
+
       const current = await client.query<OrderRow>(
-        `select ${COLS} from orders.orders where id = $1 for update`,
-        [orderId],
+        `select ${COLS} from orders.orders where ${where} for update`,
+        params,
       );
       if (!current.rows[0]) throw new NotFoundError('Order', orderId);
       const from = current.rows[0].status as OrderStatus;
@@ -199,6 +228,8 @@ export class PgOrdersRepository {
             supplierId: order.supplierId,
             from,
             to: next,
+            amountMinor: order.amount?.amountMinor ?? null,
+            currency: order.amount?.currency ?? null,
           },
         }),
       ]);

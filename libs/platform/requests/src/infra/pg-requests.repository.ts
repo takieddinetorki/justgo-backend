@@ -430,6 +430,25 @@ export class PgRequestsRepository {
    * Client accepts a quote: the winner goes ACCEPTED, every sibling is
    * CLOSED, the request goes ACCEPTED — atomically (§8.1).
    */
+  /**
+   * A quote, but only if it is on the caller's own request.
+   *
+   * The join is what makes this safe: quote ids are opaque but guessable in
+   * bulk, and a quote carries a supplier's price. 404 rather than 403, so the
+   * endpoint does not confirm a quote exists to someone it does not belong to.
+   */
+  async quoteForClient(clientAccountId: AccountId, quoteId: QuoteId): Promise<QuoteDTO> {
+    const res = await this.pool.query<QuoteRow>(
+      `select ${QUOTE_COLS.split(',').map((c) => `q.${c.trim()}`).join(', ')}
+         from requests.quotes q
+         join requests.part_requests r on r.id = q.request_id
+        where q.id = $1 and r.client_account_id = $2`,
+      [quoteId, clientAccountId],
+    );
+    if (!res.rows[0]) throw new NotFoundError('Quote', quoteId);
+    return toQuoteDTO(res.rows[0]);
+  }
+
   async acceptQuote(clientAccountId: AccountId, quoteId: QuoteId): Promise<PartRequestDetailDTO> {
     return this.tx(async (client) => {
       const quoteRes = await client.query<QuoteRow>(

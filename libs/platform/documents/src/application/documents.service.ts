@@ -50,6 +50,31 @@ export class DocumentsService implements DocumentsPort {
     @Inject(DOCUMENTS_CONFIG) private readonly config: DocumentsConfig,
   ) {}
 
+  /**
+   * Issue at most one document per subject.
+   *
+   * The read first keeps the common case cheap and gapless: no number is
+   * reserved if the document already exists. The catch covers the race the
+   * read cannot — two taps arriving together both see nothing, one wins the
+   * unique index, and the loser returns the winner's document rather than a
+   * 500 the client cannot act on.
+   */
+  async issueOnce(input: IssueDocumentInput): Promise<DocumentDTO> {
+    const existing = await this.repo.bySubject(input.type, input.subjectType, input.subjectId);
+    if (existing) return existing;
+
+    try {
+      return await this.issue(input);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('documents_one_per_subject')) throw error;
+
+      const winner = await this.repo.bySubject(input.type, input.subjectType, input.subjectId);
+      if (!winner) throw error; // the index fired for a reason we do not know
+      return winner;
+    }
+  }
+
   async issue(input: IssueDocumentInput): Promise<DocumentDTO> {
     const series = SERIES[input.type];
     if (!series) throw new ValidationError(`Unknown document type "${input.type}"`);

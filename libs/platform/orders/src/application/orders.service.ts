@@ -46,6 +46,24 @@ export class OrdersService implements OrdersPort {
     return this.repo.setFulfilment(clientAccountId, orderId, input);
   }
 
+  async advanceAsSupplier(
+    supplierId: SupplierId,
+    orderId: OrderId,
+    next: Extract<OrderStatus, 'confirmed' | 'in_progress' | 'completed'>,
+  ): Promise<OrderDTO> {
+    return this.repo.changeStatus(orderId, next, { supplierId });
+  }
+
+  async cancel(
+    actor: { clientAccountId?: AccountId; supplierId?: SupplierId },
+    orderId: OrderId,
+  ): Promise<OrderDTO> {
+    if (!actor.clientAccountId && !actor.supplierId) {
+      throw new BusinessRuleError('NOT_A_PARTY', 'Only a party to the order may cancel it');
+    }
+    return this.repo.changeStatus(orderId, 'cancelled', actor);
+  }
+
   async changeStatus(orderId: OrderId, status: OrderStatus): Promise<OrderDTO> {
     return this.repo.changeStatus(orderId, status);
   }

@@ -40,10 +40,26 @@ export class DocumentsModule {
     return {
       module: DocumentsModule,
       /*
-        MEDIA_PORT injects because MediaModule.forRoot is `global: true`
-        (made so for this). Documents writes and re-reads sealed bytes
-        through it rather than owning a second storage client.
+        GLOBAL, because other modules issue documents.
+
+        `orders` and `requests` inject DOCUMENTS_PORT for the bon de commande
+        and the devis. Nest's injector is one-directional: a module sees its
+        own providers, the exports of modules it IMPORTS, and global modules.
+        AppModule imports all three as siblings, so without `global` the port
+        would be invisible inside OrdersModule — and since those controllers
+        inject it without @Optional(), that is a boot failure rather than a
+        silent null. (Silent null is what the targeting port did: it dropped
+        every part request for weeks. See apps/api/src/app/targeting.module.ts.)
+
+        They cannot import DocumentsModule directly either: this is a forRoot
+        dynamic module, and a static import would bypass its options.
+
+        MEDIA_PORT injects here for the same reason in reverse —
+        MediaModule.forRoot is `global: true` (made so for this). Documents
+        writes and re-reads sealed bytes through it rather than owning a
+        second storage client.
       */
+      global: true,
       controllers: [DocumentsController],
       providers: [
         {

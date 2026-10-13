@@ -9,7 +9,7 @@ import {
   type Clock,
 } from '@justgo/kernel';
 import type { RequestsPort } from '../contract/requests.port';
-import type { PartRequestDetailDTO, SubmitRequestDTO } from '../contract/dto';
+import type { PartRequestDetailDTO, QuoteDTO, SubmitRequestDTO } from '../contract/dto';
 import { PgRequestsRepository } from '../infra/pg-requests.repository';
 
 export const REQUESTS_REPOSITORY = Symbol('REQUESTS_REPOSITORY');
@@ -59,6 +59,10 @@ export class RequestsService implements RequestsPort {
 
   async cancel(clientAccountId: AccountId, requestId: RequestId): Promise<PartRequestDetailDTO> {
     return this.repo.cancel(clientAccountId, requestId);
+  }
+
+  async quoteForClient(clientAccountId: AccountId, quoteId: QuoteId): Promise<QuoteDTO> {
+    return this.repo.quoteForClient(clientAccountId, quoteId);
   }
 
   async acceptQuote(clientAccountId: AccountId, quoteId: QuoteId): Promise<PartRequestDetailDTO> {

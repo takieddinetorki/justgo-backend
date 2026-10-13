@@ -394,6 +394,9 @@ All require the `vehicle.manage` permission (client/fleet roles).
 - **`POST /v1/quotes/{quoteId}/accept`** → `PartRequest` (status `accepted`).
   409 if the request/quote isn't in an acceptable state.
 - **`POST /v1/quotes/{quoteId}/refuse`** body `{ reason? }` → `PartRequest`.
+- **`POST /v1/quotes/{quoteId}/document`** → `Document` — the **devis** for a
+  quote you received, sealed. Takes no body; issued at most once per quote.
+  404 if the quote is not on one of your own requests.
 
 `PartRequest`:
 ```json
@@ -446,6 +449,21 @@ closed → 409 `REQUEST_CLOSED`.
 - **`PATCH /v1/orders/{id}/fulfilment`** body
   `{ fulfilment:"home|pickup|carrier|install", workshopSupplierId?, appointmentAt? }`
   → `Order`. `install` requires `workshopSupplierId` (else 422 `WORKSHOP_REQUIRED`).
+- **`PATCH /v1/orders/{id}/status`** body `{ action:"confirm|start|complete" }`
+  → `Order`. **Supplier side only** — needs `order.fulfil` *and* a
+  supplier-scoped token.
+  - `confirm` → `confirmed`, `start` → `in_progress`, `complete` → `completed`,
+    in that order. Anything else is **409 `ILLEGAL_ORDER_TRANSITION`** and the
+    response names the transitions that *are* allowed from the current state.
+  - **`complete` is what issues the facture.** Make sure the supplier's fiscal
+    identity is filled in first (`PATCH /v1/supplier/fiscal`) or no invoice is
+    produced — the order still completes, there is simply no document.
+- **`POST /v1/orders/{id}/cancel`** body `{ reason? }` → `Order`.
+  - Either party; needs `order.cancel`. A supplier-scoped token cancels *as*
+    the supplier, anyone else as the buyer. **409** once the order is
+    completed or already cancelled.
+- **`POST /v1/orders/{id}/purchase-order`** → `Document` — the **bon de
+  commande**, sealed. Takes no body; idempotent per order.
 
 `Order`:
 ```json
@@ -705,7 +723,9 @@ never reopen.
 `reject` (→ `rejected`); siblings of an accepted quote go `closed`.
 
 **Order status:** `created → confirmed → in_progress → completed`; any live state
-`→ cancelled`.
+`→ cancelled`. Driven by `PATCH /v1/orders/{id}/status` (supplier) and
+`POST /v1/orders/{id}/cancel` (either party). **Completion issues the facture**,
+so it is not a cosmetic flag.
 
 **Vehicle health:** `optimal | good | warning | critical | urgent` (worst wins).
 **Maintenance task:** `pending → due → (done | dismissed)`.

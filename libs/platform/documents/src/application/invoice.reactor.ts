@@ -3,26 +3,34 @@ import { EVENT_BUS, type DomainEvent, type EventBus } from '@justgo/events';
 import { SELLER_IDENTITY_PORT, type SellerIdentityPort } from '@justgo/contracts';
 import { DOCUMENTS_PORT, type DocumentsPort } from '../contract/documents.port';
 
-/** orders.OrderCreated — consumed by name, not by importing orders. */
-const ORDER_CREATED = 'orders.OrderCreated';
+/** orders.OrderStatusChanged — consumed by name, not by importing orders. */
+const ORDER_STATUS_CHANGED = 'orders.OrderStatusChanged';
 
-interface OrderCreatedPayload {
+interface OrderStatusChangedPayload {
   orderId: string;
   clientAccountId: string;
   supplierId: string;
+  from: string;
+  to: string;
   amountMinor: number | null;
   currency: string | null;
 }
 
 /**
- * Issues a *facture* when an order is created.
+ * Issues a *facture* when an order COMPLETES.
  *
- * WHY AT CREATION rather than completion. The order exists because the
- * client accepted a quote — that is the moment the sale is concluded and
- * the price is fixed. Invoicing on completion would be defensible too,
- * but nothing in the product currently advances an order past `created`:
- * there is no endpoint that sets `completed`, so an invoice waiting for
- * it would never be issued at all.
+ * It used to issue on creation, for a bad reason: no endpoint advanced an
+ * order past `created`, so an invoice waiting for completion would never
+ * have been issued at all. `PATCH /v1/orders/{id}/status` closes that, and
+ * completion is the right trigger — a facture attests a supply that
+ * happened, and an order can still be cancelled after it is created. Issuing
+ * at creation meant every abandoned order left a numbered invoice in a
+ * gapless fiscal series, which cannot be deleted and now has to be voided by
+ * hand.
+ *
+ * Only the transition INTO `completed` issues. `completed` is terminal and
+ * the transition is taken under a row lock, so exactly one caller can ever
+ * win it.
  *
  * REFUSES SILENTLY-ISH rather than emitting a broken invoice. If the
  * seller has not supplied its fiscal identifiers, or the order carries
@@ -46,11 +54,14 @@ export class InvoiceReactor implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    await this.bus.subscribe(ORDER_CREATED, (e) => this.handle(e));
+    await this.bus.subscribe(ORDER_STATUS_CHANGED, (e) => this.handle(e));
   }
 
   async handle(event: DomainEvent): Promise<void> {
-    const p = event.payload as unknown as OrderCreatedPayload;
+    const p = event.payload as unknown as OrderStatusChangedPayload;
+
+    // Every other transition is somebody else's business.
+    if (p.to !== 'completed') return;
 
     if (p.amountMinor === null || !p.currency) {
       this.logger.warn(`order ${p.orderId}: no amount — cannot invoice`);

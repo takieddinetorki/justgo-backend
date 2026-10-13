@@ -17,6 +17,7 @@
   "dependencies": {
     "@justgo/auth": "workspace:*",
     "@justgo/contracts": "workspace:*",
+    "@justgo/documents": "workspace:*",
     "@justgo/events": "workspace:*",
     "@justgo/kernel": "workspace:*",
     "@nestjs/common": "^11.0.0",

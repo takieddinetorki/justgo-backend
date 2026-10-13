@@ -10,6 +10,7 @@ import {
   type SupplierId,
   type VehicleId,
 } from '@justgo/kernel';
+import { DOCUMENTS_PORT, type DocumentDTO, type DocumentsPort } from '@justgo/documents';
 import { REQUESTS_PORT, type RequestsPort } from './contract/requests.port';
 import type { PartRequestDetailDTO } from './contract/dto';
 
@@ -32,7 +33,10 @@ const refuseSchema = z.object({ reason: z.string().max(500).optional() }).strict
 /** Client-side core loop endpoints (§15). */
 @Controller()
 export class RequestsController {
-  constructor(@Inject(REQUESTS_PORT) private readonly requests: RequestsPort) {}
+  constructor(
+    @Inject(REQUESTS_PORT) private readonly requests: RequestsPort,
+    @Inject(DOCUMENTS_PORT) private readonly documents: DocumentsPort,
+  ) {}
 
   @Post('requests')
   @RequirePermissions('request.create')
@@ -80,6 +84,42 @@ export class RequestsController {
     @Param('id') id: string,
   ): Promise<PartRequestDetailDTO> {
     return this.requests.cancel(auth.accountId, asId<RequestId>(id));
+  }
+
+  /**
+   * The *devis* for a quote the caller received, as a sealed PDF.
+   *
+   * Takes no body — the only input is the quote id, and the server reads what
+   * the document says out of its own tables. A quotation a client could
+   * dictate the contents of would be worth less than no quotation at all.
+   *
+   * Issued at most once per quote, so a double tap does not burn a second
+   * number out of a gapless series.
+   */
+  @Post('quotes/:id/document')
+  @RequirePermissions('request.read')
+  async quoteDocument(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id') id: string,
+  ): Promise<DocumentDTO> {
+    const quote = await this.requests.quoteForClient(auth.accountId, asId<QuoteId>(id));
+    return this.documents.issueOnce({
+      type: 'quotation',
+      subjectType: 'quote',
+      subjectId: quote.id,
+      issuedToAccountId: auth.accountId,
+      supplierId: quote.supplierId,
+      payload: {
+        Devis: quote.id,
+        Demande: quote.requestId,
+        Fournisseur: quote.supplierId,
+        Type: quote.kind === 'alternative' ? 'Pièce alternative' : 'Prix',
+        Désignation: quote.altName,
+        Référence: quote.altReference,
+        Montant: quote.amount,
+        Statut: quote.status,
+      },
+    });
   }
 
   @Post('quotes/:id/accept')

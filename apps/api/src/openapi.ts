@@ -867,6 +867,53 @@ function enrich(doc: OpenAPIObject): void {
     responses: { ...ok(listOf('ArticleRef')), ...errors() },
   });
 
+  set('/v1/orders/{id}/status', 'patch', {
+    tags: ['Supplier · Business'],
+    summary: 'Advance the order',
+    description:
+      'Supplier side only, and requires a supplier-scoped token. `confirm` -> `start` -> `complete`, in that order; the state machine returns **409 ILLEGAL_ORDER_TRANSITION** for anything else. **`complete` is what issues the facture** — see Documents. Cancelling has its own endpoint and its own permission.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['action'],
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['confirm', 'start', 'complete'],
+            description: 'confirm → confirmed, start → in_progress, complete → completed.',
+          },
+        },
+      },
+      { action: 'complete' },
+    ),
+    responses: { ...ok(ref('Order')), ...errors() },
+  });
+  set('/v1/orders/{id}/cancel', 'post', {
+    tags: ['Orders'],
+    summary: 'Call the sale off',
+    description:
+      'Either party may cancel — the buyer changed their mind, or the supplier has no stock after all. A supplier-scoped token cancels as the supplier, anyone else as the buyer. **409** once the order is completed or already cancelled.',
+    requestBody: body(
+      { type: 'object', properties: { reason: { type: 'string', maxLength: 500 } } },
+      { reason: 'Plus besoin de la pièce' },
+    ),
+    responses: { ...ok(ref('Order')), ...errors() },
+  });
+  set('/v1/orders/{id}/purchase-order', 'post', {
+    tags: ['Documents'],
+    summary: 'Bon de commande for this order',
+    description:
+      'Takes **no body**: the only input is the order id and the server reads what the document says out of its own tables. A document whose contents the caller could dictate would make the signature worthless. Idempotent — a double tap returns the BC that already exists rather than burning a second number out of the gapless BC series.',
+    responses: { ...ok(ref('Document')), ...errors() },
+  });
+  set('/v1/quotes/{id}/document', 'post', {
+    tags: ['Documents'],
+    summary: 'Devis for a quote you received',
+    description:
+      'Takes **no body**, for the same reason as the bon de commande. Issued at most once per quote. 404 if the quote is not on one of your own requests.',
+    responses: { ...ok(ref('Document')), ...errors() },
+  });
+
   // ── Client · Garage ────────────────────────────────────────────────────
   const vehicleBody = {
     type: 'object',

@@ -4,16 +4,19 @@
   "include": [],
   "references": [
     {
-      "path": "../../shared/auth"
+      "path": "../../shared/kernel"
     },
     {
       "path": "../../shared/events"
     },
     {
+      "path": "../documents"
+    },
+    {
       "path": "../../shared/contracts"
     },
     {
-      "path": "../../shared/kernel"
+      "path": "../../shared/auth"
     },
     {
       "path": "./tsconfig.lib.json"

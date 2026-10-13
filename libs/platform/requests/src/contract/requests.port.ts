@@ -13,6 +13,8 @@ export interface RequestsPort {
   getForClient(clientAccountId: AccountId, requestId: RequestId): Promise<PartRequestDetailDTO>;
   listForClient(clientAccountId: AccountId, limit?: number): Promise<PartRequestDetailDTO[]>;
   cancel(clientAccountId: AccountId, requestId: RequestId): Promise<PartRequestDetailDTO>;
+  /** A single quote off the caller's own request. */
+  quoteForClient(clientAccountId: AccountId, quoteId: QuoteId): Promise<QuoteDTO>;
   acceptQuote(clientAccountId: AccountId, quoteId: QuoteId): Promise<PartRequestDetailDTO>;
   refuseQuote(clientAccountId: AccountId, quoteId: QuoteId, reason?: string): Promise<PartRequestDetailDTO>;
   /** Creates the quote stubs the fan-out worker targets (§13). */

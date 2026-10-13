@@ -220,6 +220,21 @@ export class PgDocumentsRepository {
       : null;
   }
 
+  /** The document already issued for a subject, if there is one. */
+  async bySubject(
+    type: string,
+    subjectType: string,
+    subjectId: string,
+  ): Promise<DocumentDTO | null> {
+    const res = await this.pool.query<DocumentRow>(
+      `select ${COLUMNS} from documents.documents
+        where type = $1 and subject_type = $2 and subject_id = $3
+        order by issued_at limit 1`,
+      [type, subjectType, subjectId],
+    );
+    return res.rows[0] ? toDTO(res.rows[0]) : null;
+  }
+
   async listForAccount(accountId: AccountId, limit: number): Promise<DocumentDTO[]> {
     const res = await this.pool.query<DocumentRow>(
       `select ${COLUMNS} from documents.documents

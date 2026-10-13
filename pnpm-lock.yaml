@@ -630,6 +630,9 @@ importers:
       '@justgo/contracts':
         specifier: workspace:*
         version: link:../../shared/contracts
+      '@justgo/documents':
+        specifier: workspace:*
+        version: link:../documents
       '@justgo/events':
         specifier: workspace:*
         version: link:../../shared/events
@@ -661,6 +664,9 @@ importers:
       '@justgo/contracts':
         specifier: workspace:*
         version: link:../../shared/contracts
+      '@justgo/documents':
+        specifier: workspace:*
+        version: link:../documents
       '@justgo/events':
         specifier: workspace:*
         version: link:../../shared/events
