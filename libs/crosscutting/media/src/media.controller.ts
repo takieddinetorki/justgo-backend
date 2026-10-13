@@ -14,6 +14,7 @@ const uploadSchema = z
       'avatars',
       'message-attachments',
       'post-media',
+      'driver-documents',
     ]),
     filename: z.string().min(1).max(200),
     contentType: z.string().max(100).optional(),

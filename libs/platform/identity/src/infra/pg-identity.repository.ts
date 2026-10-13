@@ -161,6 +161,27 @@ export class PgIdentityRepository {
   }
 
   /**
+   * Take a global role away.
+   *
+   * The counterpart to `assignRole`, added for driver suspension: a role
+   * granted by a check must be removable when the check stops holding, or
+   * `driver.work` outlives the verification it came from.
+   *
+   * Scoped roles are NOT touched. A supplier scope is revoked by removing the
+   * supplier, and a blanket delete here would strip every business an account
+   * acts for.
+   */
+  async revokeGlobalRole(accountId: AccountId, roleKey: string): Promise<void> {
+    await this.pool.query(
+      `delete from identity.user_roles
+        where account_id = $1
+          and scope_type = 'global'
+          and role_id = (select id from identity.roles where key = $2)`,
+      [accountId, roleKey],
+    );
+  }
+
+  /**
    * One lookup that accepts either key.
    *
    * `owner_account_id` on a supplier, and the `accountId` on events emitted

@@ -46,6 +46,9 @@
       "path": "../../libs/platform/requests"
     },
     {
+      "path": "../../libs/platform/reclamations"
+    },
+    {
       "path": "../../libs/crosscutting/realtime"
     },
     {
@@ -71,6 +74,9 @@
     },
     {
       "path": "../../libs/shared/events"
+    },
+    {
+      "path": "../../libs/platform/drivers"
     },
     {
       "path": "../../libs/platform/documents"

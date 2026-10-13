@@ -17,3 +17,13 @@ export const DEFAULT_ROLE_KEY = 'client';
 
 /** Granted on the business an account has just registered. */
 export const SUPPLIER_OWNER_ROLE = 'supplier_owner';
+
+/**
+ * Granted when a driver verification succeeds, revoked on suspension.
+ *
+ * It carries `driver.work` — the bit that lets someone go online and be
+ * dispatched. Deliberately not seeded onto any person: being allowed to drive
+ * is the OUTCOME of a check, so it cannot be something a role handed out at
+ * signup.
+ */
+export const DRIVER_ROLE = 'driver';

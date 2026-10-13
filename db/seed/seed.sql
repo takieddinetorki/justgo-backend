@@ -8,7 +8,8 @@ insert into identity.roles (key, label) values
   ('guest', 'Guest'),
   ('supplier_owner', 'Supplier owner'),
   ('branch_manager', 'Branch manager'),
-  ('ops_admin', 'Operations admin')
+  ('ops_admin', 'Operations admin'),
+  ('driver', 'Verified driver')
 on conflict (key) do update set label = excluded.label;
 
 insert into identity.permissions (key) values
@@ -21,6 +22,9 @@ insert into identity.permissions (key) values
   ('order.read'), ('order.create'), ('order.fulfil'), ('order.cancel'),
   ('reservation.create'), ('reservation.manage'),
   ('message.send'),
+  ('post.publish'), ('post.interact'),
+  ('reclamation.file'), ('reclamation.respond'),
+  ('driver.apply'), ('driver.work'),
   ('listing.publish'), ('listing.contact'),
   ('platform.admin')
 on conflict (key) do nothing;
@@ -62,6 +66,20 @@ with role_perm(role_key, perm_key) as (
     ('branch_manager', 'order.fulfil'), ('branch_manager', 'order.cancel'),
     ('branch_manager', 'reservation.manage'),
     ('branch_manager', 'message.send'),
+
+    ('client', 'post.publish'), ('client', 'post.interact'),
+    ('client', 'reclamation.file'), ('client', 'driver.apply'),
+    ('fleet', 'post.publish'), ('fleet', 'post.interact'),
+    ('fleet', 'reclamation.file'), ('fleet', 'driver.apply'),
+    ('supplier_owner', 'post.publish'), ('supplier_owner', 'post.interact'),
+    ('supplier_owner', 'reclamation.file'), ('supplier_owner', 'reclamation.respond'),
+    ('supplier_owner', 'driver.apply'),
+    ('branch_manager', 'post.publish'), ('branch_manager', 'post.interact'),
+    ('branch_manager', 'reclamation.file'), ('branch_manager', 'reclamation.respond'),
+    ('branch_manager', 'driver.apply'),
+
+    -- Granted by DriverVerificationReactor, never seeded onto a person.
+    ('driver', 'driver.work'), ('driver', 'driver.apply'),
 
     ('ops_admin', 'platform.admin')
 )

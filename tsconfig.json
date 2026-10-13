@@ -101,6 +101,12 @@
     },
     {
       "path": "./libs/platform/social"
+    },
+    {
+      "path": "./libs/platform/reclamations"
+    },
+    {
+      "path": "./libs/platform/drivers"
     }
   ]
 }

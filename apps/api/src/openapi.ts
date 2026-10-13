@@ -659,6 +659,166 @@ function schemas(): Record<string, unknown> {
         nextCursor: { type: 'string', nullable: true },
       },
     },
+    CaseAttachment: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        bucket: { type: 'string', example: 'part-photos' },
+        path: { type: 'string' },
+        uploadedByAccountId: { type: 'string', format: 'uuid' },
+        createdAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    CaseMessage: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        caseId: { type: 'string', format: 'uuid' },
+        authorAccountId: { type: 'string', format: 'uuid' },
+        authorRole: {
+          type: 'string',
+          enum: ['claimant', 'respondent', 'ops'],
+          description:
+            'Recorded at the time, never re-derived — an account can lose a supplier scope, and a thread must not rewrite its own history.',
+        },
+        body: { type: 'string' },
+        internal: {
+          type: 'boolean',
+          description: 'Ops-only note. Never present in a claimant or respondent response.',
+        },
+        createdAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    Case: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        reference: {
+          type: 'string',
+          example: 'RCL-2026-000123',
+          description: 'What a human quotes on the phone. Unique, readable, not gapless.',
+        },
+        claimantAccountId: { type: 'string', format: 'uuid' },
+        respondentSupplierId: {
+          type: 'string',
+          format: 'uuid',
+          nullable: true,
+          description: 'Null when the complaint is against the platform rather than a business.',
+        },
+        subjectType: {
+          type: 'string',
+          enum: ['order', 'reservation', 'assistance', 'listing', 'quote'],
+          nullable: true,
+        },
+        subjectId: { type: 'string', format: 'uuid', nullable: true },
+        category: {
+          type: 'string',
+          enum: [
+            'not_delivered',
+            'wrong_part',
+            'damaged',
+            'quality',
+            'overcharged',
+            'no_show',
+            'behaviour',
+            'other',
+          ],
+        },
+        title: { type: 'string' },
+        body: { type: 'string' },
+        status: {
+          type: 'string',
+          enum: ['open', 'under_review', 'resolved', 'rejected', 'withdrawn'],
+          description:
+            'resolved and rejected are distinct on purpose: "we fixed it" and "we did not agree" are the two things a complaint history has to tell apart.',
+        },
+        resolution: {
+          type: 'string',
+          nullable: true,
+          description: 'Always set on resolved and rejected — a closed case must say why.',
+        },
+        attachments: { type: 'array', items: ref('CaseAttachment') },
+        messageCount: { type: 'integer', description: 'Excludes internal ops notes.' },
+        closedAt: { type: 'string', format: 'date-time', nullable: true },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    CasePage: {
+      type: 'object',
+      properties: {
+        items: { type: 'array', items: ref('Case') },
+        nextCursor: { type: 'string', nullable: true },
+      },
+    },
+    DriverDocument: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        kind: { type: 'string', enum: ['licence_front', 'licence_back', 'selfie', 'id_card'] },
+        bucket: { type: 'string', example: 'driver-documents' },
+        path: { type: 'string' },
+        uploadedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    DriverAvailability: {
+      type: 'object',
+      properties: {
+        isOnline: { type: 'boolean' },
+        lat: { type: 'number', nullable: true },
+        lng: { type: 'number', nullable: true },
+        lastSeenAt: {
+          type: 'string',
+          format: 'date-time',
+          description:
+            'Treat a stale heartbeat as offline whatever isOnline says — an app killed by the OS never gets to set it false.',
+        },
+      },
+    },
+    Driver: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        accountId: { type: 'string', format: 'uuid' },
+        supplierId: {
+          type: 'string',
+          format: 'uuid',
+          nullable: true,
+          description: 'The business they drive for. Null for an independent operator.',
+        },
+        fullName: { type: 'string' },
+        phone: { type: 'string', nullable: true },
+        licenceNumber: { type: 'string', nullable: true },
+        licenceExpiresOn: {
+          type: 'string',
+          format: 'date',
+          nullable: true,
+          description: 'A date, not an instant — a licence expires on a day.',
+        },
+        status: {
+          type: 'string',
+          enum: ['draft', 'pending_review', 'verified', 'rejected', 'suspended'],
+          description:
+            'rejected means never accepted; suspended means accepted and no longer trusted.',
+        },
+        decisionReason: {
+          type: 'string',
+          nullable: true,
+          description: 'Always set on rejected and suspended. Show it — it is what to fix.',
+        },
+        decidedAt: { type: 'string', format: 'date-time', nullable: true },
+        verifiedAt: { type: 'string', format: 'date-time', nullable: true },
+        documents: { type: 'array', items: ref('DriverDocument') },
+        availability: { allOf: [ref('DriverAvailability')], nullable: true },
+        missingDocuments: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Kinds still needed before submit will be accepted. Drive the wizard off this.',
+        },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
     VehicleType: {
       type: 'object',
       properties: {
@@ -985,6 +1145,262 @@ function enrich(doc: OpenAPIObject): void {
     description:
       'Takes **no body**, for the same reason as the bon de commande. Issued at most once per quote. 404 if the quote is not on one of your own requests.',
     responses: { ...ok(ref('Document')), ...errors() },
+  });
+
+  // ── Reclamations ──────────────────────────────────────────────────────
+  set('/v1/reclamations', 'post', {
+    tags: ['Reclamations'],
+    summary: 'File a complaint',
+    description:
+      'Needs `reclamation.file`, which suppliers hold too — a business is also somebody customer, and a supplier whose own order never arrived needs the same recourse. `respondentSupplierId` is optional: a complaint about the platform itself has no respondent business. Attachments come from `/v1/media/uploads` (`part-photos` or `vehicle-photos`) and must be your own uploads.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['category', 'title', 'body'],
+        properties: {
+          category: {
+            type: 'string',
+            enum: [
+              'not_delivered',
+              'wrong_part',
+              'damaged',
+              'quality',
+              'overcharged',
+              'no_show',
+              'behaviour',
+              'other',
+            ],
+          },
+          title: { type: 'string', minLength: 1, maxLength: 200 },
+          body: { type: 'string', minLength: 1, maxLength: 5000 },
+          respondentSupplierId: { type: 'string', format: 'uuid' },
+          subjectType: {
+            type: 'string',
+            enum: ['order', 'reservation', 'assistance', 'listing', 'quote'],
+            description: 'Must be sent together with subjectId.',
+          },
+          subjectId: { type: 'string', format: 'uuid' },
+          attachments: {
+            type: 'array',
+            maxItems: 10,
+            items: {
+              type: 'object',
+              required: ['bucket', 'path'],
+              properties: {
+                bucket: { type: 'string', enum: ['part-photos', 'vehicle-photos'] },
+                path: { type: 'string', maxLength: 300 },
+              },
+            },
+          },
+        },
+      },
+      {
+        category: 'wrong_part',
+        title: 'Plaquettes reçues ne correspondent pas',
+        body: 'La référence livrée est BP-9999 au lieu de BP-1234.',
+        subjectType: 'order',
+        subjectId: '…',
+      },
+    ),
+    responses: {
+      '201': { description: 'Filed', content: { 'application/json': { schema: ref('Case') } } },
+      ...errors(),
+    },
+  });
+  set('/v1/reclamations', 'get', {
+    tags: ['Reclamations'],
+    summary: 'The complaints you may see',
+    description:
+      'One endpoint, three audiences: a claimant sees their own, a supplier-scoped token sees those against its business, and `platform.admin` sees everything. Separate routes would force the client to know which kind of user it holds.',
+    parameters: [
+      {
+        name: 'status',
+        in: 'query',
+        schema: {
+          type: 'string',
+          enum: ['open', 'under_review', 'resolved', 'rejected', 'withdrawn'],
+        },
+      },
+      { name: 'limit', in: 'query', schema: { type: 'integer', maximum: 100, default: 20 } },
+      { name: 'cursor', in: 'query', schema: { type: 'string' } },
+    ],
+    responses: { ...ok(ref('CasePage')), ...errors() },
+  });
+  set('/v1/reclamations/{id}', 'get', {
+    tags: ['Reclamations'],
+    summary: 'Complaint detail',
+    description: '404 if you are not party to it — not 403.',
+    responses: { ...ok(ref('Case')), ...errors() },
+  });
+  set('/v1/reclamations/{id}', 'patch', {
+    tags: ['Reclamations'],
+    summary: 'Move the complaint',
+    description:
+      'A claimant may **only** withdraw their own; upholding or dismissing is for the respondent or ops. `resolved` and `rejected` **require** a resolution — a closed complaint that does not say why is worse than an open one. Reopening is deliberately not a transition: a complaint that resurfaces is a new complaint with its own reference, rather than a resolution quietly becoming untrue.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['status'],
+        properties: {
+          status: {
+            type: 'string',
+            enum: ['under_review', 'resolved', 'rejected', 'withdrawn'],
+          },
+          resolution: { type: 'string', maxLength: 2000 },
+        },
+      },
+      { status: 'resolved', resolution: 'Pièce remplacée, livrée le 2026-10-18.' },
+    ),
+    responses: { ...ok(ref('Case')), ...errors() },
+  });
+  set('/v1/reclamations/{id}/messages', 'get', {
+    tags: ['Reclamations'],
+    summary: 'The thread',
+    description: 'Internal ops notes are never returned to a claimant or a respondent.',
+    responses: { ...ok(listOf('CaseMessage')), ...errors() },
+  });
+  set('/v1/reclamations/{id}/messages', 'post', {
+    tags: ['Reclamations'],
+    summary: 'Add to the thread',
+    description:
+      'A closed complaint stops accepting messages. `internal: true` is **ops only** — it writes a note neither party can see, so a claimant able to set it would be writing into the case file in a way the supplier cannot answer.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['body'],
+        properties: {
+          body: { type: 'string', minLength: 1, maxLength: 5000 },
+          internal: { type: 'boolean', default: false },
+        },
+      },
+      { body: 'Nous renvoyons la bonne référence aujourd hui.' },
+    ),
+    responses: {
+      '201': {
+        description: 'Posted',
+        content: { 'application/json': { schema: ref('CaseMessage') } },
+      },
+      ...errors(),
+    },
+  });
+
+  // ── Driver ────────────────────────────────────────────────────────────
+  set('/v1/driver', 'post', {
+    tags: ['Driver'],
+    summary: 'Apply to drive',
+    description:
+      'Creates the profile, or returns the one this account already has — the verification flow is a wizard a user can re-enter, and re-opening it must not reset a profile already under review. `supplierId` ties the driver to a business; omit it for an independent operator.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['fullName'],
+        properties: {
+          fullName: { type: 'string', minLength: 1, maxLength: 160 },
+          phone: { type: 'string', maxLength: 32 },
+          licenceNumber: { type: 'string', maxLength: 64 },
+          licenceExpiresOn: { type: 'string', format: 'date' },
+          supplierId: { type: 'string', format: 'uuid' },
+        },
+      },
+      { fullName: 'Karim Benali', licenceExpiresOn: '2031-04-30' },
+    ),
+    responses: {
+      '201': { description: 'Created', content: { 'application/json': { schema: ref('Driver') } } },
+      ...errors(),
+    },
+  });
+  set('/v1/driver/me', 'get', {
+    tags: ['Driver'],
+    summary: 'My driver profile',
+    description: 'Drive the verification wizard off `missingDocuments` and `status`.',
+    responses: { ...ok(ref('Driver')), ...errors() },
+  });
+  set('/v1/driver/me', 'patch', {
+    tags: ['Driver'],
+    summary: 'Update my details',
+    description:
+      'Frozen while `pending_review` (422 UNDER_REVIEW): otherwise a driver could swap the licence number after the photos were approved, and the verification would attest a document nobody checked.',
+    requestBody: body({
+      type: 'object',
+      properties: {
+        fullName: { type: 'string', minLength: 1, maxLength: 160 },
+        phone: { type: 'string', maxLength: 32 },
+        licenceNumber: { type: 'string', maxLength: 64 },
+        licenceExpiresOn: { type: 'string', format: 'date' },
+      },
+    }),
+    responses: { ...ok(ref('Driver')), ...errors() },
+  });
+  set('/v1/driver/me/documents', 'post', {
+    tags: ['Driver'],
+    summary: 'Attach a licence photo or selfie',
+    description:
+      'Upload through `/v1/media/uploads` to the **`driver-documents`** bucket first and send the path. Bytes never pass through here, and a path outside your own namespace is **403** — submitting somebody else licence is the one thing this flow exists to prevent. **Latest wins per kind**, so retaking a photo replaces the old one and the reviewer only ever sees the current set.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['kind', 'bucket', 'path'],
+        properties: {
+          kind: { type: 'string', enum: ['licence_front', 'licence_back', 'selfie', 'id_card'] },
+          bucket: { type: 'string', enum: ['driver-documents'] },
+          path: { type: 'string', maxLength: 300 },
+        },
+      },
+      { kind: 'licence_front', bucket: 'driver-documents', path: 'ACCOUNT_ID/licence.jpg' },
+    ),
+    responses: { ...ok(ref('Driver')), ...errors() },
+  });
+  set('/v1/driver/me/submit', 'post', {
+    tags: ['Driver'],
+    summary: 'Submit for review',
+    description:
+      '**`licence_front` and `selfie` are both required.** Without the selfie, verified would mean only that somebody photographed a licence — not necessarily their own. A short set is **422 DOCUMENTS_INCOMPLETE** with the missing kinds named, so the app can send the user back to the right step.',
+    responses: { ...ok(ref('Driver')), ...errors() },
+  });
+  set('/v1/driver/me/availability', 'patch', {
+    tags: ['Driver'],
+    summary: 'Go online or offline',
+    description:
+      'Only a **verified** driver may go online (403 otherwise). Going offline is always allowed — it must never be possible to get stuck online. Omitting lat/lng on a ping keeps the last known position rather than blanking it.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['isOnline'],
+        properties: {
+          isOnline: { type: 'boolean' },
+          lat: { type: 'number', minimum: -90, maximum: 90 },
+          lng: { type: 'number', minimum: -180, maximum: 180 },
+        },
+      },
+      { isOnline: true, lat: 36.7538, lng: 3.0588 },
+    ),
+    responses: { ...ok(ref('Driver')), ...errors() },
+  });
+  set('/v1/driver/review', 'get', {
+    tags: ['Driver'],
+    summary: 'The review queue (ops)',
+    description:
+      'Oldest submission first, because the person waiting longest is the one most likely to give up. Requires `platform.admin`.',
+    parameters: [{ name: 'limit', in: 'query', schema: { type: 'integer', maximum: 200 } }],
+    responses: { ...ok(listOf('Driver')), ...errors() },
+  });
+  set('/v1/driver/{id}/verification', 'patch', {
+    tags: ['Driver'],
+    summary: 'Decide a verification (ops)',
+    description:
+      'A `rejected` or `suspended` decision **requires a reason**: a refusal the driver cannot act on just becomes a support ticket. Verification grants the `driver` role (carrying `driver.work`) through a reactor, and a suspension revokes it — being allowed to drive is the outcome of a check, so it is never handed out at signup. A refusal also forces the driver offline in the same transaction, so there is no window where dispatch could still pick them up.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['status'],
+        properties: {
+          status: { type: 'string', enum: ['verified', 'rejected', 'suspended'] },
+          reason: { type: 'string', maxLength: 1000 },
+        },
+      },
+      { status: 'rejected', reason: 'La photo du permis est illisible.' },
+    ),
+    responses: { ...ok(ref('Driver')), ...errors() },
   });
 
   // ── Social ────────────────────────────────────────────────────────────
@@ -1809,6 +2225,8 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
     .addTag('Client · Fulfilment')
     .addTag('Supplier · Calendar')
     .addTag('Social')
+    .addTag('Reclamations')
+    .addTag('Driver')
     .addTag('Messaging')
     .addTag('Documents')
     .addTag('Media')

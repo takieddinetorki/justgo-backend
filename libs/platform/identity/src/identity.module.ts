@@ -11,6 +11,7 @@ import {
   DEFAULT_SESSION_TTL_SECONDS,
 } from './application/session.service';
 import { SupplierRoleReactor } from './application/supplier-role.reactor';
+import { DriverRoleReactor } from './application/driver-role.reactor';
 
 /**
  * Owns the `identity` schema. The module keeps its own Pool so it stays
@@ -39,6 +40,7 @@ import { SupplierRoleReactor } from './application/supplier-role.reactor';
     },
     SessionService,
     SupplierRoleReactor,
+    DriverRoleReactor,
   ],
   exports: [IDENTITY_PORT],
 })

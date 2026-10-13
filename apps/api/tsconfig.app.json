@@ -69,6 +69,9 @@
       "path": "../../libs/platform/requests/tsconfig.lib.json"
     },
     {
+      "path": "../../libs/platform/reclamations/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/crosscutting/realtime/tsconfig.lib.json"
     },
     {
@@ -94,6 +97,9 @@
     },
     {
       "path": "../../libs/shared/events/tsconfig.lib.json"
+    },
+    {
+      "path": "../../libs/platform/drivers/tsconfig.lib.json"
     },
     {
       "path": "../../libs/platform/documents/tsconfig.lib.json"
