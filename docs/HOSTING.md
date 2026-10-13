@@ -138,6 +138,28 @@ development deployment.
 to the unit suite and appeared only in the bundled build; this is what
 catches that class of bug.
 
+### The one check it leaves out
+
+`scripts/smoke.mjs` stops at the gate on driver verification rather than
+driving through it, because deciding a verification needs `platform.admin` —
+and an account holding that carries read access to every identity document in
+the system. A routine test must never have it.
+
+`scripts/verify-driver-verification.mjs` is the by-hand version. It mints an
+ops account, verifies a driver, waits for the reactor to grant `driver.work`,
+goes online, suspends, waits for the revocation, and **revokes its own ops
+grant in a `finally` block**. Dev boxes only:
+
+```sh
+cd /opt/justgo/justgo-backend
+ANON=$(grep -E '^SUPABASE_ANON_KEY=' .env.vps | cut -d= -f2- | tr -d '"')
+ANON_KEY="$ANON" node scripts/verify-driver-verification.mjs
+```
+
+The part worth watching is "the reactor granted driver.work". If that fails it
+is not a driver problem — it means outbox → relay → BullMQ delivery is broken,
+which has happened before and was invisible to every unit test.
+
 ---
 
 ## 4. What is NOT running, and what it costs you
