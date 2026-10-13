@@ -352,6 +352,29 @@ All require the `vehicle.manage` permission (client/fleet roles).
   "categoryKeys":["braking","engine"],"distanceM":842 }
 ```
 
+- **`GET /v1/discovery/directory?q=&vertical=&category=&city=&lat=&lng=&limit=&cursor=`** →
+  `{ items: DirectorySupplier[], nextCursor }` — the **Services Directory**.
+  - **Every parameter is optional, including location.** That is the whole
+    point of this route: `/discovery/suppliers` above demands a `lat`/`lng`,
+    and a user who never granted location permission could not browse at all.
+  - `q` is a fuzzy name match (trigram), so `garag`, `Garge` and `GARAGE` all
+    find *Garage Central*.
+  - Supply `lat` **and** `lng` to get `distanceM` on each row and proximity
+    ordering; omit them and results order by rating then name.
+  - `cursor` is keyset pagination — pass back the `nextCursor` you were given.
+    `null` means you are on the last page.
+  - Public — no token needed.
+  - This is a **separate route** from `/discovery/suppliers` on purpose. The
+    shipped app already calls that one; changing its contract would break
+    builds in the field.
+
+`DirectorySupplier`:
+```json
+{ "supplierId":"uuid","verticalKey":"garage","name":"Garage Central",
+  "categoryKeys":["braking","engine"],"city":"Alger","country":"DZ",
+  "rating":4.6,"distanceM":1240 }
+```
+
 ### Client · Requests
 - **`POST /v1/requests`** (header `Idempotency-Key`) body:
   ```json
@@ -394,6 +417,17 @@ All require the `vehicle.manage` permission (client/fleet roles).
 - **`POST /v1/supplier`** body `{ verticalKey:"part_store", name, city?, country?, lat?, lng?, profile? }`
   → `Supplier`. 422 `UNKNOWN_VERTICAL` / `SUPPLIER_ALREADY_REGISTERED`.
 - **`GET /v1/supplier/profile`** → `Supplier`.
+- **`PATCH /v1/supplier/fiscal`** body
+  `{ legalName?, address?, nif?, nis?, rc?, taxArticle? }` → `Supplier`.
+  - **Required before any invoice can be issued for this supplier.** Algerian
+    law makes NIF, NIS, RC and the *article d'imposition* mandatory mentions
+    on a facture, so while any of them is missing the backend **refuses to
+    issue** rather than produce a document that merely looks official. The
+    refusal is logged server-side naming the missing fields.
+  - Fields are **merged**, not replaced — sending only `nif` leaves the rest
+    alone, so the app can collect them over several screens.
+  - `legalName` is the registered name as it must appear on the invoice, which
+    is often not the trading name in `name`.
 
 ### Supplier · Inbox (requires `supplier_id` in the token)
 - **`GET /v1/supplier/requests?limit=`** → `{ items: Quote[] }` (your quote stubs).
@@ -538,6 +572,128 @@ Uploads never stream through the API — you get a short-lived pre-signed URL an
   upload namespace (it is, if it came from `POST /v1/media/uploads`).
 
 ---
+
+### Messaging — Phase 3
+
+Text, photos and voice notes, between two accounts, optionally *about*
+something (a listing, a part request, an order).
+
+- **`GET /v1/conversations?limit=`** → `{ items: Conversation[] }`, most
+  recently active first. `unreadCount` is computed per caller.
+- **`POST /v1/conversations`** body:
+  ```json
+  { "withAccountId":"uuid", "contextType":"listing", "contextId":"uuid",
+    "subject":"Clio IV 2018", "asSupplierId":null }
+  ```
+  → `Conversation`.
+  - **Idempotent per (participants, context).** Tapping "contact seller"
+    twice on the same listing returns the conversation that already exists
+    rather than creating a second one. Do not try to deduplicate client-side.
+  - `asSupplierId` makes the caller take part **as a business**; it requires
+    the caller to hold that supplier's scope in the token.
+  - `contextType` ∈ `listing` | `request` | `order`, and may be omitted for a
+    conversation about nothing in particular.
+- **`GET /v1/conversations/{id}`** → `Conversation`. 404 if you are not a
+  participant — not 403, so the endpoint does not confirm a conversation
+  exists to someone outside it.
+- **`GET /v1/conversations/{id}/messages?limit=&cursor=`** →
+  `{ items: Message[], nextCursor }`, **newest first**. Keyset pagination;
+  `nextCursor: null` means you have reached the beginning of the thread.
+- **`POST /v1/conversations/{id}/messages`** body:
+  ```json
+  { "kind":"text", "body":"Bonjour, je passe demain matin." }
+  ```
+  → `Message`. Requires the `message.send` permission.
+  - **A text message needs `body`.** A `photo` or `voice` message needs
+    `attachmentBucket` + `attachmentPath` instead — upload the file through
+    `POST /v1/media/uploads` to the `message-attachments` bucket first, then
+    send the `path` you got back. Bytes never go through this endpoint.
+  - Send `durationMs` on voice notes. The client needs it to draw the
+    waveform and show a length without downloading the audio.
+- **`POST /v1/conversations/{id}/read`** → `204`. Moves the caller's read
+  marker to now, which is what clears `unreadCount` for them. It does not
+  affect the other participant's marker.
+
+`Conversation`:
+```json
+{ "id":"uuid","contextType":"listing","contextId":"uuid","subject":"Clio IV 2018",
+  "participants":[
+    {"accountId":"uuid","supplierId":null,"lastReadAt":"…"},
+    {"accountId":"uuid","supplierId":"uuid","lastReadAt":null}],
+  "lastMessage":{ /* Message */ },"unreadCount":3,
+  "lastMessageAt":"…","createdAt":"…" }
+```
+
+`Message`:
+```json
+{ "id":"uuid","conversationId":"uuid","senderAccountId":"uuid","kind":"voice",
+  "body":null,"attachmentBucket":"message-attachments",
+  "attachmentPath":"<accountId>/1739357000_note.m4a","durationMs":4200,
+  "createdAt":"…" }
+```
+
+### Documents — Phase 3
+
+Invoices, reservation confirmations and the rest, as **PDFs the server
+signed**. Every document is hashed (SHA-256) and signed (Ed25519) over its
+exact stored bytes, and kept in a private bucket unchanged.
+
+**There is no endpoint that creates a document from a request body, and there
+will not be one.** A signature over content the client supplied would certify
+nothing — a supplier could mint a facture for any amount against any NIF and
+our own key would vouch for it. Documents are issued by the server off events
+it already trusts. Your job is to list, download and verify them.
+
+- **`GET /v1/documents?limit=`** → `{ items: Document[] }` — documents issued
+  to the caller.
+- **`GET /v1/documents/{id}/download`** → `{ url }`, a **short-lived** signed
+  URL. The bucket is private; there is no permanent public link. Fetch the URL
+  when the user taps, do not cache it.
+- **`GET /v1/documents/verify/{number}`** → `VerificationResult`. **Public.**
+  This is the QR target printed on every document, so anyone holding a paper
+  copy can check it. Returns status and authenticity only — no amounts, no
+  parties — because document numbers are guessable.
+- **`POST /v1/documents/verify/{number}`** body `{ "file":"<base64 pdf>" }` →
+  `VerificationResult` with `matchesSuppliedFile`. The stronger check: it
+  compares the bytes *the holder has* against the bytes we sealed, which
+  proves their copy is the real one rather than asking them to trust our
+  screen. Public.
+- **`GET /v1/documents/keys`** → `{ algo, keys[] }`, the public signing keys,
+  so a third party can verify a document **offline**. Retired keys stay listed
+  so old documents keep verifying after a rotation. Public.
+- **`POST /v1/documents/{id}/void`** body `{ reason }` → `Document`. Requires
+  `platform.admin`.
+
+**`authentic` and `status` are different questions, and the UI must not
+conflate them.** A voided document is still authentic — we really did issue
+it — but it is no longer valid. Voiding never deletes or alters the stored
+bytes, which is exactly why a voided document keeps verifying. Render
+`message`, which states both facts in one sentence, rather than deriving your
+own wording from the booleans.
+
+Voiding is **purely administrative**: no credit note, no accounting entry, no
+reversal document. The status flips and the verifier starts saying so.
+
+`Document`:
+```json
+{ "id":"uuid","type":"invoice","number":"FA-2026-000001",
+  "subjectType":"order","subjectId":"uuid",
+  "issuedToAccountId":"uuid","supplierId":"uuid","status":"issued",
+  "sha256":"9f2b…","algo":"ed25519","keyId":"k1","signatureFormat":"detached",
+  "byteSize":3001,"issuedAt":"…","voidedAt":null,"voidReason":null }
+```
+
+Document numbers are **gapless per series and per year**, which is what a
+fiscal series requires:
+
+| Type | Series | Example |
+|---|---|---|
+| `invoice` | `FA` | `FA-2026-000001` |
+| `credit_note` | `AV` | `AV-2026-000001` |
+| `quotation` | `DEV` | `DEV-2026-000001` |
+| `purchase_order` | `BC` | `BC-2026-000001` |
+| `reservation_confirmation` | `RES` | `RES-2026-000001` |
+| `receipt` | `REC` | `REC-2026-000001` |
 
 ## 7. Enums & state machines
 

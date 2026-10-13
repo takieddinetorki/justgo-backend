@@ -2,6 +2,7 @@ import { Controller, Get, Header, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { dirname, join, normalize, sep } from 'node:path';
+import { ApiExcludeController } from '@nestjs/swagger';
 import { Public } from '@justgo/auth';
 import { getOpenApiDocument } from '../docs-document';
 
@@ -63,6 +64,7 @@ const HTML = `<!DOCTYPE html>
  * thing ourselves as first-class Nest routes: the UI page, the raw document,
  * and the swagger-ui-dist assets. All public — docs need no auth.
  */
+@ApiExcludeController() // the docs plumbing is not API surface
 @Controller()
 export class DocsController {
   @Public()

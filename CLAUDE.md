@@ -123,7 +123,16 @@ consumes.
   capability via `VerticalRegistry` and NEVER names a vertical.
 - Nx tags: `scope:shared|platform|vertical|integration|crosscutting|app` —
   depConstraints in `eslint.config.mjs`. Fitness tests in
-  `test/architecture` (cycles, deep imports, schema ownership).
+  `test/architecture` (cycles, deep imports, schema ownership, OpenAPI
+  coverage).
+- **A new route needs a `set()` block in `apps/api/src/openapi.ts`.** Paths
+  are reflected off the controllers, but bodies are validated with zod rather
+  than class DTOs, so there is nothing for Nest to reflect INTO an operation:
+  every schema, example and summary is hand-attached there. Without one, the
+  endpoint ships as a bare verb-and-path. `openapi-coverage.spec.ts` fails the
+  build on an undocumented route, and on a `set()` key that matches no route
+  (`enrich()` applies with `if (op) …`, so a stale key silently documents
+  nothing).
 
 ## Hard guardrails (spec §17.4 — never violate)
 
