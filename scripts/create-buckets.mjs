@@ -34,6 +34,7 @@ const BUCKETS = [
   'part-photos',
   'avatars',
   'message-attachments',
+  'post-media',
   'documents',
 ];
 

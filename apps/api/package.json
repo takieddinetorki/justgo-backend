@@ -103,6 +103,7 @@
     "@justgo/realtime": "workspace:*",
     "@justgo/requests": "workspace:*",
     "@justgo/reservations": "workspace:*",
+    "@justgo/social": "workspace:*",
     "@justgo/suppliers": "workspace:*",
     "@justgo/tecdoc": "workspace:*",
     "@justgo/vehicles": "workspace:*",

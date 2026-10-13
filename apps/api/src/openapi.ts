@@ -432,11 +432,16 @@ function schemas(): Record<string, unknown> {
     },
     SignedUpload: {
       type: 'object',
-      description: 'PUT the bytes to url, then send path back on the resource that uses it.',
+      description:
+        'PUT the bytes to uploadUrl, then send path back on the resource that uses it. Persist the PATH, never the URL — the URL expires.',
       properties: {
-        url: { type: 'string', description: 'Pre-signed PUT target. Short-lived.' },
-        bucket: { type: 'string', example: 'vehicle-photos' },
+        uploadUrl: { type: 'string', description: 'Pre-signed PUT target. Short-lived.' },
         path: { type: 'string', example: 'ACCOUNT_ID/1739357000_front.jpg' },
+        token: {
+          type: 'string',
+          description: 'The opaque token embedded in uploadUrl, for clients that need it separately.',
+        },
+        expiresInSeconds: { type: 'integer', example: 3600 },
       },
     },
     RegistrationDraft: {
@@ -584,6 +589,74 @@ function schemas(): Record<string, unknown> {
             },
           },
         },
+      },
+    },
+    PostMedia: {
+      type: 'object',
+      description: 'A path in a private bucket, not bytes. Fetch via a signed URL.',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        kind: { type: 'string', enum: ['photo', 'video'] },
+        bucket: { type: 'string', example: 'post-media' },
+        path: { type: 'string' },
+        durationMs: { type: 'integer', nullable: true, description: 'Video only.' },
+        ordinal: {
+          type: 'integer',
+          description: 'Render order. The gallery sequence is part of the content.',
+        },
+      },
+    },
+    Post: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        authorAccountId: {
+          type: 'string',
+          format: 'uuid',
+          description: 'Who actually pressed post. Always set.',
+        },
+        authorSupplierId: {
+          type: 'string',
+          format: 'uuid',
+          nullable: true,
+          description:
+            'The business they pressed it on behalf of, if any. Render the business badge from this and keep the account for accountability.',
+        },
+        body: { type: 'string', nullable: true },
+        media: { type: 'array', items: ref('PostMedia') },
+        likeCount: { type: 'integer' },
+        commentCount: { type: 'integer' },
+        likedByMe: {
+          type: 'boolean',
+          description: 'Per-caller — drives the filled heart without a second request.',
+        },
+        status: { type: 'string', enum: ['published', 'removed'] },
+        createdAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    PostPage: {
+      type: 'object',
+      properties: {
+        items: { type: 'array', items: ref('Post') },
+        nextCursor: { type: 'string', nullable: true },
+      },
+    },
+    Comment: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        postId: { type: 'string', format: 'uuid' },
+        authorAccountId: { type: 'string', format: 'uuid' },
+        authorSupplierId: { type: 'string', format: 'uuid', nullable: true },
+        body: { type: 'string' },
+        createdAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    CommentPage: {
+      type: 'object',
+      properties: {
+        items: { type: 'array', items: ref('Comment') },
+        nextCursor: { type: 'string', nullable: true },
       },
     },
     VehicleType: {
@@ -912,6 +985,142 @@ function enrich(doc: OpenAPIObject): void {
     description:
       'Takes **no body**, for the same reason as the bon de commande. Issued at most once per quote. 404 if the quote is not on one of your own requests.',
     responses: { ...ok(ref('Document')), ...errors() },
+  });
+
+  // ── Social ────────────────────────────────────────────────────────────
+  set('/v1/feed', 'get', {
+    tags: ['Social'],
+    summary: 'The community feed',
+    description:
+      'Published posts, newest first, keyset-paginated. **There is no follow graph** — this is every post, which is deliberate rather than unfinished: nothing in the app lets a user follow anyone, so a graph nobody could populate would only make the feed empty. Narrow it with `author` (a profile timeline) or `supplier` (a business page).',
+    parameters: [
+      { name: 'limit', in: 'query', schema: { type: 'integer', maximum: 100, default: 20 } },
+      {
+        name: 'cursor',
+        in: 'query',
+        schema: { type: 'string' },
+        description: 'Pass back the `nextCursor` you were given. Null means last page.',
+      },
+      {
+        name: 'author',
+        in: 'query',
+        schema: { type: 'string', format: 'uuid' },
+        description: 'Only this account’s posts.',
+      },
+      {
+        name: 'supplier',
+        in: 'query',
+        schema: { type: 'string', format: 'uuid' },
+        description: 'Only posts made on behalf of this business.',
+      },
+    ],
+    responses: { ...ok(ref('PostPage')), ...errors() },
+  });
+  set('/v1/posts', 'post', {
+    tags: ['Social'],
+    summary: 'Publish a post',
+    description:
+      'Needs text or at least one media item (422 otherwise). Media goes up through `POST /v1/media/uploads` to the **post-media** bucket first — send the returned paths here, in the order they should appear. Bytes never pass through this endpoint, and a path outside your own upload namespace is rejected. `asSupplierId` posts **as a business** and requires a supplier-scoped token for that exact supplier: the badge is what readers trust, so it is not a free-text field.',
+    requestBody: body(
+      {
+        type: 'object',
+        properties: {
+          body: { type: 'string', maxLength: 5000 },
+          media: {
+            type: 'array',
+            maxItems: 10,
+            items: {
+              type: 'object',
+              required: ['kind', 'bucket', 'path'],
+              properties: {
+                kind: { type: 'string', enum: ['photo', 'video'] },
+                bucket: { type: 'string', enum: ['post-media'] },
+                path: { type: 'string', maxLength: 300 },
+                durationMs: { type: 'integer', description: 'Video only.' },
+              },
+            },
+          },
+          asSupplierId: { type: 'string', format: 'uuid' },
+        },
+      },
+      {
+        body: 'Nouvelle arrivée : plaquettes de frein Bosch',
+        media: [{ kind: 'photo', bucket: 'post-media', path: 'ACCOUNT_ID/1739357000_1.jpg' }],
+      },
+    ),
+    responses: { ...ok(ref('Post')), ...errors() },
+  });
+  set('/v1/posts/{id}', 'get', {
+    tags: ['Social'],
+    summary: 'Post detail',
+    responses: { ...ok(ref('Post')), ...errors() },
+  });
+  set('/v1/posts/{id}', 'delete', {
+    tags: ['Social'],
+    summary: 'Retract your own post',
+    description:
+      'Sets status `removed` rather than deleting: a post somebody has commented on or reported should stop being visible without taking the conversation, or the evidence, with it. **404** if the post is not yours — the endpoint does not confirm it exists.',
+    responses: { ...ok(ref('Post')), ...errors() },
+  });
+  set('/v1/posts/{id}/takedown', 'post', {
+    tags: ['Social'],
+    summary: 'Administrative takedown',
+    description: 'Any post, with a stated reason. Requires `platform.admin`.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['reason'],
+        properties: { reason: { type: 'string', minLength: 1, maxLength: 500 } },
+      },
+      { reason: 'Spam' },
+    ),
+    responses: { ...ok(ref('Post')), ...errors() },
+  });
+  set('/v1/posts/{id}/like', 'post', {
+    tags: ['Social'],
+    summary: 'Like a post',
+    description:
+      'Idempotent — double-tapping is how people use a like button, so a second call leaves one like and one count. Returns the post with the updated `likeCount` and `likedByMe`.',
+    responses: { ...ok(ref('Post')), ...errors() },
+  });
+  set('/v1/posts/{id}/like', 'delete', {
+    tags: ['Social'],
+    summary: 'Remove your like',
+    description: 'Also idempotent: un-liking something you never liked changes nothing.',
+    responses: { ...ok(ref('Post')), ...errors() },
+  });
+  set('/v1/posts/{id}/comments', 'get', {
+    tags: ['Social'],
+    summary: 'Comments, oldest first',
+    description: 'A thread is read in the order it was said, so this pages forwards.',
+    parameters: [
+      { name: 'limit', in: 'query', schema: { type: 'integer', maximum: 100, default: 50 } },
+      { name: 'cursor', in: 'query', schema: { type: 'string' } },
+    ],
+    responses: { ...ok(ref('CommentPage')), ...errors() },
+  });
+  set('/v1/posts/{id}/comments', 'post', {
+    tags: ['Social'],
+    summary: 'Comment on a post',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['body'],
+        properties: {
+          body: { type: 'string', minLength: 1, maxLength: 2000 },
+          asSupplierId: {
+            type: 'string',
+            format: 'uuid',
+            description: 'Comment as a business. Same scope requirement as posting.',
+          },
+        },
+      },
+      { body: 'Toujours disponible ?' },
+    ),
+    responses: {
+      '201': { description: 'Created', content: { 'application/json': { schema: ref('Comment') } } },
+      ...errors(),
+    },
   });
 
   // ── Client · Garage ────────────────────────────────────────────────────
@@ -1599,6 +1808,7 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
     .addTag('Client · Marketplace')
     .addTag('Client · Fulfilment')
     .addTag('Supplier · Calendar')
+    .addTag('Social')
     .addTag('Messaging')
     .addTag('Documents')
     .addTag('Media')

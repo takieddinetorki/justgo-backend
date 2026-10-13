@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { asId, type AccountId, type SupplierId } from '@justgo/kernel';
+import { asId, ConflictError, type AccountId, type SupplierId } from '@justgo/kernel';
 import { makeEvent, PgOutboxStore } from '@justgo/events';
 import { SUPPLIER_REGISTERED } from '../contract/events';
 import type { RegisterSupplierDTO, SupplierDTO } from '../contract/dto';
@@ -155,6 +155,45 @@ export class PgSuppliersRepository {
    * all of them being present.
    */
   async updateFiscalIdentity(
+    id: string,
+    patch: {
+      legalName?: string;
+      address?: string;
+      nif?: string;
+      nis?: string;
+      rc?: string;
+      taxArticle?: string;
+    },
+  ): Promise<SupplierDTO | null> {
+    try {
+      return await this.applyFiscalIdentity(id, patch);
+    } catch (error) {
+      /*
+        A NIF or an RC already belongs to another supplier.
+
+        This surfaced as a bare 500 with a Postgres constraint name in the
+        log and nothing an app could act on. It is a business condition, not
+        a bug: fiscal identifiers are unique per company by law, so a
+        collision means either a typo or an attempt to invoice under someone
+        else's registration. Either way the user needs to be told which
+        field, and a 500 tells them to try again later.
+      */
+      const message = error instanceof Error ? error.message : String(error);
+      const field = message.includes('suppliers_nif_unique')
+        ? 'nif'
+        : message.includes('suppliers_rc_unique')
+          ? 'rc'
+          : null;
+      if (!field) throw error;
+      throw new ConflictError(
+        'FISCAL_IDENTIFIER_TAKEN',
+        `That ${field.toUpperCase()} is already registered to another supplier`,
+        { field },
+      );
+    }
+  }
+
+  private async applyFiscalIdentity(
     id: string,
     patch: {
       legalName?: string;

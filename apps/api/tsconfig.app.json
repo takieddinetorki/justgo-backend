@@ -60,6 +60,9 @@
       "path": "../../libs/platform/suppliers/tsconfig.lib.json"
     },
     {
+      "path": "../../libs/platform/social/tsconfig.lib.json"
+    },
+    {
       "path": "../../libs/platform/reservations/tsconfig.lib.json"
     },
     {

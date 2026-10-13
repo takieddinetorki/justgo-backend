@@ -1,5 +1,5 @@
 import type { DomainEvent, EventBus } from '@justgo/events';
-import type { SellerIdentityPort, SellerIdentityDTO } from '@justgo/contracts';
+import type { SellerIdentityPort, SellerIdentity } from '@justgo/contracts';
 import type { DocumentDTO } from '../contract/dto';
 import type { DocumentsPort } from '../contract/documents.port';
 import { InvoiceReactor } from './invoice.reactor';
@@ -10,7 +10,7 @@ import { InvoiceReactor } from './invoice.reactor';
   invisible to a type checker and both were live defects at some point.
 */
 
-const COMPLETE_SELLER: SellerIdentityDTO = {
+const COMPLETE_SELLER: SellerIdentity = {
   supplierId: 'sup-1',
   legalName: 'SARL PIECES AUTO ALGER',
   address: '12 rue Didouche Mourad',
@@ -20,7 +20,7 @@ const COMPLETE_SELLER: SellerIdentityDTO = {
   nis: '000216001234567',
   rc: '16/00-1234567B16',
   taxArticle: '16000123456',
-} as unknown as SellerIdentityDTO;
+} as unknown as SellerIdentity;
 
 function statusEvent(to: string, from = 'in_progress'): DomainEvent {
   return {
@@ -37,7 +37,7 @@ function statusEvent(to: string, from = 'in_progress'): DomainEvent {
   } as unknown as DomainEvent;
 }
 
-function harness(seller: SellerIdentityDTO | null = COMPLETE_SELLER) {
+function harness(seller: SellerIdentity | null = COMPLETE_SELLER) {
   const issued: unknown[] = [];
   const documents = {
     issueInvoice: async (input: unknown) => {
@@ -72,7 +72,7 @@ describe('InvoiceReactor', () => {
   });
 
   it('refuses rather than issue a facture with no fiscal identity', async () => {
-    const incomplete = { ...COMPLETE_SELLER, nif: null } as unknown as SellerIdentityDTO;
+    const incomplete = { ...COMPLETE_SELLER, nif: null } as unknown as SellerIdentity;
     const { reactor, issued } = harness(incomplete);
     await reactor.handle(statusEvent('completed'));
     expect(issued).toEqual([]);

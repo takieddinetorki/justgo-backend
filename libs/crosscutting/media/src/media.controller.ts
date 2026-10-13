@@ -13,6 +13,7 @@ const uploadSchema = z
       'part-photos',
       'avatars',
       'message-attachments',
+      'post-media',
     ]),
     filename: z.string().min(1).max(200),
     contentType: z.string().max(100).optional(),

@@ -37,6 +37,9 @@
       "path": "../../libs/platform/suppliers"
     },
     {
+      "path": "../../libs/platform/social"
+    },
+    {
       "path": "../../libs/platform/reservations"
     },
     {

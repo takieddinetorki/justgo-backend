@@ -650,6 +650,64 @@ something (a listing, a part request, an order).
   "createdAt":"…" }
 ```
 
+### Social feed — Phase 3
+
+Posts with text, photos and video, plus likes and comments.
+
+**A post belongs to an ACCOUNT, optionally speaking for a BUSINESS.**
+`authorAccountId` is always who pressed post; `authorSupplierId` is the
+business they pressed it on behalf of. Render the business badge from the
+second and keep the first for accountability. A client posting about their own
+car has no supplier; a *fournisseur* staff member posting a promotion has both.
+
+- **`GET /v1/feed?limit=&cursor=&author=&supplier=`** →
+  `{ items: Post[], nextCursor }`.
+  - **There is no follow graph.** The feed is every published post, newest
+    first. That is a deliberate starting point, not an unfinished one: nothing
+    in the app lets a user follow anyone, so a graph nobody could populate
+    would just make the feed empty.
+  - `author` gives a profile timeline, `supplier` a business page.
+  - Keyset pagination, so posts arriving while the user scrolls do not cause
+    duplicates or skipped rows the way an offset would.
+- **`POST /v1/posts`** body
+  `{ body?, media?: [{ kind, bucket, path, durationMs? }], asSupplierId? }`
+  → `Post`. Needs `post.publish`.
+  - Needs text **or** at least one media item (422 otherwise).
+  - Media goes up through **`POST /v1/media/uploads`** to the **`post-media`**
+    bucket first; send the returned `path` values here **in display order**.
+    Bytes never pass through this endpoint, and a path outside your own upload
+    namespace is **403**.
+  - `asSupplierId` requires a supplier-scoped token for that exact supplier.
+    **403** otherwise — the badge is what readers trust, so it is not a
+    free-text field.
+  - `durationMs` is video only.
+- **`GET /v1/posts/{id}`** → `Post`.
+- **`DELETE /v1/posts/{id}`** → `Post` with status `removed`. Author only;
+  **404** if it is not yours. Not a delete: a post somebody has commented on
+  or reported stops being visible without taking the conversation, or the
+  evidence, with it.
+- **`POST /v1/posts/{id}/takedown`** body `{ reason }` → `Post`. Any post,
+  requires `platform.admin`.
+- **`POST /v1/posts/{id}/like`** / **`DELETE /v1/posts/{id}/like`** → `Post`.
+  Needs `post.interact`. **Both idempotent** — double-tapping is how people
+  use a like button, so a second call leaves the count where it was. Use the
+  returned `likeCount` and `likedByMe` rather than adjusting locally.
+- **`GET /v1/posts/{id}/comments?limit=&cursor=`** →
+  `{ items: Comment[], nextCursor }`, **oldest first** — a thread is read in
+  the order it was said.
+- **`POST /v1/posts/{id}/comments`** body `{ body, asSupplierId? }` → **201**
+  `Comment`. Needs `post.interact`.
+
+`Post`:
+```json
+{ "id":"uuid","authorAccountId":"uuid","authorSupplierId":null,
+  "body":"Nouvelle arrivée : plaquettes Bosch",
+  "media":[{"id":"uuid","kind":"photo","bucket":"post-media",
+            "path":"<accountId>/1739357000_1.jpg","durationMs":null,"ordinal":0}],
+  "likeCount":12,"commentCount":3,"likedByMe":true,
+  "status":"published","createdAt":"…" }
+```
+
 ### Documents — Phase 3
 
 Invoices, reservation confirmations and the rest, as **PDFs the server
