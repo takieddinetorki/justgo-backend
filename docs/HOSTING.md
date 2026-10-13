@@ -224,6 +224,107 @@ claims, so it works against Realtime and PostgREST as well as this API.
 
 ## 7. Operations (for whoever runs the box)
 
+### Backups
+
+A nightly dump runs from root's crontab at 02:17 UTC:
+
+```
+17 2 * * * /opt/justgo/backup-db.sh >> /opt/justgo/backups/backup.log 2>&1
+```
+
+Each run writes two gzipped files to `/opt/justgo/backups` (mode 700, files
+600 — the globals dump contains role password hashes) and keeps 14 days:
+
+| File | What it is |
+|---|---|
+| `justgo-<stamp>.sql.gz` | every schema and its data |
+| `justgo-<stamp>.globals.sql.gz` | roles and their passwords |
+
+**You need both.** Restored without the globals, every grant and RLS policy
+references roles that do not exist and silently fails to apply.
+
+The script verifies before it publishes a filename, and rotates only after a
+verified write — so a failed run never evicts a good backup. Check the newest
+one at any time:
+
+```sh
+/opt/justgo/backup-db.sh --verify
+```
+
+### Proving a backup actually restores
+
+```sh
+bash /opt/justgo/verify-backup-restores.sh
+```
+
+It restores the newest backup into a throwaway container and compares it row
+for row against the live database: documents, the invoice numbers, the SHA-256
+of every document, accounts, `auth.users`, orders, complaints, drivers, posts,
+RLS policy count, and whether the unique index that stops a double facture
+survived. It then asserts the fiscal series is still gapless. Nothing it does
+touches the live stack.
+
+**Run it after any change to the backup script or the Postgres image.** The
+first version of these scripts produced backups that restored everything
+*except the 44 user accounts* — `auth` is owned by `supabase_admin`, so a
+dump taken as `postgres` could not reapply it, and a recovery would have
+produced a database where every profile exists and nobody can log in. That is
+only visible by actually restoring.
+
+### What is still NOT protected
+
+The backups are **on the same disk as the database**. They survive a bad
+migration or a dropped table; they do not survive losing the box.
+
+Two things need to live somewhere else, and nothing automates that yet:
+
+```sh
+scp -r root@168.231.87.48:/opt/justgo/backups ./
+scp root@168.231.87.48:/opt/justgo/doc-signing.key ./
+```
+
+**The signing key matters as much as the database.** Every invoice is sealed
+with it; lose it and every document ever issued becomes unverifiable, which
+cannot be repaired after the fact — the signatures are over bytes nobody can
+check any more.
+
+### Rate limiting
+
+In the API, keyed per caller: an authenticated request is bucketed by a hash
+of its bearer token, an anonymous one by IP.
+
+| Route | Limit (per minute) |
+|---|---|
+| everything by default | 600 |
+| `GET`/`POST /v1/documents/verify/*` | 20 |
+| `POST /v1/posts`, `POST /v1/posts/{id}/comments` | 30 |
+| `POST /v1/reclamations` | 30 |
+| `POST /v1/auth/session`, `POST /v1/media/uploads` | 60 |
+| `POST /v1/conversations/{id}/messages` | 120 |
+| `/v1/health`, `/v1/docs*` | exempt |
+
+**Per token, not per IP, on purpose.** Algerian carriers use CGNAT heavily, so
+one public address fronts many real users; an IP-keyed limit tight enough to
+stop abuse would lock all of them out at once.
+
+A 429 carries `Retry-After`. The default sits well above what the app already
+does when polling, so a client hitting it is misbehaving rather than busy.
+
+**Two things will silently break it.** Running a second API replica doubles
+every limit, because the counters are in process memory — move the storage to
+Redis in the same change. And putting Caddy or any proxy in front of the API
+requires setting Express `trust proxy` in the same change, or every anonymous
+request appears to come from the proxy and shares one bucket.
+
+**GoTrue is not covered.** `/auth/v1/signup` and `/auth/v1/token` go through
+Kong on :8100 and never reach the API, so sign-up remains unthrottled. Kong
+3.9 ships a `rate-limiting` plugin that would close this; it is not enabled,
+because a mistake in that config takes the whole gateway — and therefore all
+authentication — down with it.
+
+
+### Running the stack
+
 Everything lives in `/opt/justgo/justgo-backend`.
 
 ```sh
