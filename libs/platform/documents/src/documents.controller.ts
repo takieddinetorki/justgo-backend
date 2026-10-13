@@ -64,15 +64,21 @@ export class DocumentsController {
    * are guessable and this endpoint is open to the world.
    */
   /*
-    Tight, because document numbers are SEQUENTIAL: FA-2026-000001,
-    000002, and so on. The endpoint is public by design — it is the QR
-    target printed on every document — and returns only authenticity and
-    status, never amounts or parties. But without a limit, walking the
-    series would still tell an outsider exactly how many invoices the
-    business has issued and when it started. Nobody verifies twenty
-    documents a minute by hand.
+    Limited, because document numbers are SEQUENTIAL: FA-2026-000001,
+    000002, and so on, so the series can be walked. The endpoint is public by
+    design — it is the QR target printed on every document — and deliberately
+    returns only authenticity and status, never amounts or parties, so what
+    enumeration yields is a volume signal rather than data.
+
+    60 a minute, and the number is a trade rather than a maximum. It is
+    ANONYMOUS, so the bucket is per ADDRESS: an accountant checking a batch of
+    invoices from one office, or any group behind one NAT, shares it. Against
+    that, dropping to 20 buys almost nothing — someone walking the series over
+    hours is barely inconvenienced either way — while making a legitimate
+    burst fail. The protection here is that the response carries nothing worth
+    enumerating; the limit is about cost and noise.
   */
-  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('verify/:number')
   @Public()
   async verify(@Param('number') number: string): Promise<VerificationResult> {
@@ -93,7 +99,8 @@ export class DocumentsController {
     business has issued and when it started. Nobody verifies twenty
     documents a minute by hand.
   */
-  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  /* Same bucket and same reasoning as the GET above. */
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Post('verify/:number')
   @Public()
   async verifyFile(

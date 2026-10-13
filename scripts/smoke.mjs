@@ -67,7 +67,7 @@ async function call(method, path, { token, body, base = API } = {}) {
   } catch {
     data = text;
   }
-  return { status: res.status, data };
+  return { status: res.status, data, retryAfter: res.headers.get('retry-after') };
 }
 
 /** A throwaway account, plus the session token the rest of the API needs. */
@@ -329,7 +329,21 @@ async function main() {
       check('the facture is signed', invoice.algo === 'ed25519' && invoice.sha256?.length === 64,
         `${invoice.algo} sha256:${invoice.sha256?.slice(0, 12)}…`);
 
-      const verify = await call('GET', `/v1/documents/verify/${invoice.number}`);
+      /*
+        Retried on 429, because this endpoint is rate limited per ADDRESS (it
+        is anonymous, so there is no caller to key on) and anything else
+        running from this host shares that bucket — including the throttle
+        check next door. A 429 here means the limiter is working, not that
+        verification is broken, and a gate that reports the two the same way
+        stops being trusted.
+      */
+      let verify = await call('GET', `/v1/documents/verify/${invoice.number}`);
+      for (let i = 0; verify.status === 429 && i < 3; i += 1) {
+        const wait = Number(verify.retryAfter ?? 60) * 1000;
+        console.log(`  ..    rate limited, waiting ${wait / 1000}s (the limiter is doing its job)`);
+        await new Promise((r) => setTimeout(r, wait + 1000));
+        verify = await call('GET', `/v1/documents/verify/${invoice.number}`);
+      }
       check('public verification says authentic',
         verify.data?.authentic === true && verify.data?.status === 'issued',
         `authentic ${verify.data?.authentic} status ${verify.data?.status}`);

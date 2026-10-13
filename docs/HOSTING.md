@@ -296,7 +296,7 @@ of its bearer token, an anonymous one by IP.
 | Route | Limit (per minute) |
 |---|---|
 | everything by default | 600 |
-| `GET`/`POST /v1/documents/verify/*` | 20 |
+| `GET`/`POST /v1/documents/verify/*` | 60 — anonymous, so per ADDRESS |
 | `POST /v1/posts`, `POST /v1/posts/{id}/comments` | 30 |
 | `POST /v1/reclamations` | 30 |
 | `POST /v1/auth/session`, `POST /v1/media/uploads` | 60 |
