@@ -68,7 +68,7 @@ interface Row {
   pending_bid_count?: string;
 }
 
-interface BidRow {
+export interface BidRow {
   id: string;
   listing_id: string;
   buyer_account_id: string;
@@ -154,7 +154,7 @@ function toSellerDTO(r: Row): ListingDTO {
  * their bid landed `below_range` hands them the floor by bisection: bid, read
  * the standing, halve the interval, repeat.
  */
-function toBid(r: BidRow, forSeller: boolean): BidDTO {
+export function toBid(r: BidRow, forSeller = false): BidDTO {
   return {
     id: r.id,
     listingId: r.listing_id,
@@ -542,7 +542,16 @@ export class PgMarketplaceRepository {
           range.maxMinor,
         ],
       );
-      const bid = toBid(inserted.rows[0], true);
+      /*
+        `false` — the BUYER is the one reading this response, and they must
+        not learn where their offer landed. This said `true` when it shipped,
+        which handed every bidder the bisection oracle this whole design
+        exists to deny them: bid, read the standing, halve the interval,
+        repeat until the floor is known. Caught by the smoke test, not by any
+        type or unit test, because nothing about the shape is wrong — only who
+        is looking at it.
+      */
+      const bid = toBid(inserted.rows[0]);
 
       await this.outbox.appendWith(c, [
         makeEvent({
