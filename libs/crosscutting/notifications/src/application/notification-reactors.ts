@@ -41,6 +41,9 @@ export class NotificationReactors implements OnApplicationBootstrap {
     await on(E.ORDER_STATUS_CHANGED, (e) =>
       this.onOrderStatusChanged(e.payload as E.OrderStatusChanged),
     );
+    await on(E.BID_PLACED, (e) => this.onBidPlaced(e.payload as E.BidPlaced));
+    await on(E.BID_ACCEPTED, (e) => this.onBidAccepted(e.payload as E.BidAccepted));
+    await on(E.BID_DECLINED, (e) => this.onBidDeclined(e.payload as E.BidDeclined));
   }
 
   private async guard(
@@ -165,5 +168,64 @@ export class NotificationReactors implements OnApplicationBootstrap {
         data: { from: p.from, to: p.to },
       }),
     ]);
+  }
+
+  /**
+   * An offer on a car.
+   *
+   * THE SELLER IS TOLD ONLY WHEN THEY ASKED TO BE. `notifiesSeller` is false
+   * for a bid below their acceptance range, and that silence is the feature: a
+   * seller pinged for every lowball stops reading the pings, and the one real
+   * offer then arrives into a channel they have muted. The bid is still
+   * recorded and still visible whenever they look at the listing.
+   *
+   * The amount is NOT in the title. A push notification shows on a lock
+   * screen, and a car is not a thing most people want priced in public.
+   */
+  private async onBidPlaced(p: E.BidPlaced): Promise<void> {
+    if (!p.notifiesSeller) return;
+    await this.notify({
+      recipient: account(p.sellerAccountId),
+      type: 'listing.bid',
+      title: 'New offer on your car',
+      body: p.listingTitle,
+      refId: p.listingId,
+      data: {
+        bidId: p.bidId,
+        amountMinor: p.amountMinor,
+        currency: p.currency,
+        standing: p.standing,
+      },
+    });
+  }
+
+  private async onBidAccepted(p: E.BidAccepted): Promise<void> {
+    // The buyer is the one who has been waiting on an answer.
+    await this.notify({
+      recipient: account(p.buyerAccountId),
+      type: 'listing.bid.accepted',
+      title: 'Your offer was accepted',
+      body: p.listingTitle,
+      refId: p.listingId,
+      data: { bidId: p.bidId, amountMinor: p.amountMinor, currency: p.currency },
+    });
+  }
+
+  /**
+   * Declined, including every other offer when one is accepted.
+   *
+   * Told either way, because silence after bidding is the thing buyers
+   * complain about on every marketplace — and a buyer who is never answered
+   * keeps the offer open in their head and the car in their shortlist.
+   */
+  private async onBidDeclined(p: E.BidDeclined): Promise<void> {
+    await this.notify({
+      recipient: account(p.buyerAccountId),
+      type: 'listing.bid.declined',
+      title: p.supersededByAcceptance ? 'The car went to another offer' : 'Your offer was declined',
+      body: p.reason ?? p.listingTitle,
+      refId: p.listingId,
+      data: { bidId: p.bidId, supersededByAcceptance: p.supersededByAcceptance },
+    });
   }
 }

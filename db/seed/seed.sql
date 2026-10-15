@@ -25,7 +25,7 @@ insert into identity.permissions (key) values
   ('post.publish'), ('post.interact'),
   ('reclamation.file'), ('reclamation.respond'),
   ('driver.apply'), ('driver.work'),
-  ('listing.publish'), ('listing.contact'),
+  ('listing.publish'), ('listing.contact'), ('listing.bid'),
   ('platform.admin')
 on conflict (key) do nothing;
 
@@ -68,13 +68,17 @@ with role_perm(role_key, perm_key) as (
     ('branch_manager', 'message.send'),
 
     ('client', 'post.publish'), ('client', 'post.interact'),
+    ('client', 'listing.bid'),
     ('client', 'reclamation.file'), ('client', 'driver.apply'),
     ('fleet', 'post.publish'), ('fleet', 'post.interact'),
+    ('fleet', 'listing.bid'),
     ('fleet', 'reclamation.file'), ('fleet', 'driver.apply'),
     ('supplier_owner', 'post.publish'), ('supplier_owner', 'post.interact'),
+    ('supplier_owner', 'listing.bid'),
     ('supplier_owner', 'reclamation.file'), ('supplier_owner', 'reclamation.respond'),
     ('supplier_owner', 'driver.apply'),
     ('branch_manager', 'post.publish'), ('branch_manager', 'post.interact'),
+    ('branch_manager', 'listing.bid'),
     ('branch_manager', 'reclamation.file'), ('branch_manager', 'reclamation.respond'),
     ('branch_manager', 'driver.apply'),
 

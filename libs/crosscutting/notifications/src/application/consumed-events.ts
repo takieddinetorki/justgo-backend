@@ -12,6 +12,9 @@ export const QUOTE_REJECTED = 'requests.QuoteRejected';
 export const QUOTE_ACCEPTED = 'requests.QuoteAccepted';
 export const ORDER_CREATED = 'orders.OrderCreated';
 export const ORDER_STATUS_CHANGED = 'orders.OrderStatusChanged';
+export const BID_PLACED = 'marketplace.BidPlaced';
+export const BID_ACCEPTED = 'marketplace.BidAccepted';
+export const BID_DECLINED = 'marketplace.BidDeclined';
 
 export interface UserRegistered {
   accountId: string;
@@ -64,4 +67,45 @@ export interface OrderStatusChanged {
   supplierId: string;
   from: string;
   to: string;
+}
+
+export interface BidPlaced {
+  bidId: string;
+  listingId: string;
+  listingTitle: string;
+  sellerAccountId: string;
+  buyerAccountId: string;
+  amountMinor: number;
+  currency: string;
+  standing: 'below_range' | 'in_range' | 'above_range';
+  /**
+   * Whether the seller asked to hear about a bid this size.
+   *
+   * DECIDED BY THE EMITTER, not here. The acceptance range is private to the
+   * seller, so a notification reactor that had to read it would need access to
+   * every seller's floor — and anything holding that is another place it can
+   * leak from. The marketplace decides once, at placement, and says so on the
+   * event.
+   */
+  notifiesSeller: boolean;
+}
+
+export interface BidAccepted {
+  bidId: string;
+  listingId: string;
+  listingTitle: string;
+  sellerAccountId: string;
+  buyerAccountId: string;
+  amountMinor: number;
+  currency: string;
+}
+
+export interface BidDeclined {
+  bidId: string;
+  listingId: string;
+  listingTitle: string;
+  sellerAccountId: string;
+  buyerAccountId: string;
+  reason: string | null;
+  supersededByAcceptance: boolean;
 }

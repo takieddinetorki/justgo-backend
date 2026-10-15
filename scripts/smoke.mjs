@@ -499,6 +499,236 @@ async function main() {
     check('only the author may retract', theirDelete.status >= 400, `status ${theirDelete.status}`);
   }
 
+  section('selling a car: richer listing + bidding on a range');
+  const bidder = await makeUser('bidder');
+  const bidder2 = await makeUser('bidder2');
+
+  const listed = await call('POST', '/v1/marketplace/listings', {
+    token: client.token,
+    body: {
+      title: `Renault Clio IV ${STAMP}`,
+      brand: 'Renault',
+      model: 'Clio IV',
+      year: 2018,
+      mileageKm: 84000,
+      amount: { amountMinor: 185_000_00, currency: 'DZD' },
+      city: 'Alger',
+      country: 'DZ',
+      fuelType: 'diesel',
+      transmission: 'manual',
+      bodyType: 'citadine',
+      colour: 'Gris',
+      doors: 5,
+      engineHp: 90,
+      condition: 'used',
+      isCustomsCleared: true,
+      papersInOrder: true,
+      ownerCount: 2,
+      accidentFree: true,
+    },
+  });
+  const listingId = listed.data?.id;
+  check('listing published with the full spec',
+    listed.status < 400 && listed.data?.fuelType === 'diesel' && listed.data?.isCustomsCleared === true,
+    `${listed.status} fuel=${listed.data?.fuelType} customs=${listed.data?.isCustomsCleared}`);
+  check('a listing starts closed to offers', listed.data?.acceptsOffers === false,
+    `acceptsOffers ${listed.data?.acceptsOffers}`);
+
+  if (listingId) {
+    const tooSoon = await call('POST', `/v1/marketplace/listings/${listingId}/bids`, {
+      token: bidder.token,
+      body: { amount: { amountMinor: 100_000_00, currency: 'DZD' } },
+    });
+    check('a listing with no range refuses offers',
+      tooSoon.status === 422 && tooSoon.data?.error?.code === 'OFFERS_NOT_ACCEPTED',
+      `${tooSoon.status} ${tooSoon.data?.error?.code}`);
+
+    // 1 700 000 .. 1 850 000 DZD, in minor units.
+    const FLOOR = 170_000_00;
+    const CEILING = 185_000_00;
+    const ranged = await call('PUT', `/v1/marketplace/listings/${listingId}/offer-range`, {
+      token: client.token,
+      body: { minMinor: FLOOR, maxMinor: CEILING },
+    });
+    check('the seller can set an acceptance range',
+      ranged.status < 400 && ranged.data?.offerRange?.min?.amountMinor === FLOOR,
+      `${ranged.status} min=${ranged.data?.offerRange?.min?.amountMinor}`);
+    check('the currency is inherited from the asking price',
+      ranged.data?.offerRange?.min?.currency === 'DZD',
+      `${ranged.data?.offerRange?.min?.currency}`);
+
+    const upsideDown = await call('PUT', `/v1/marketplace/listings/${listingId}/offer-range`, {
+      token: client.token,
+      body: { minMinor: CEILING, maxMinor: FLOOR },
+    });
+    check('a ceiling below the floor is refused', upsideDown.status >= 400,
+      `status ${upsideDown.status}`);
+
+    /*
+      THE SECURITY PROPERTY OF THE WHOLE FEATURE. If a buyer can read the
+      floor they bid exactly the floor, and every offer above it that the
+      seller would have received is lost. Checked anonymously AND as a
+      logged-in buyer, because those are two different code paths.
+    */
+    const publicView = await call('GET', `/v1/marketplace/listings/${listingId}`);
+    check('the range does NOT leak on an anonymous read',
+      publicView.data?.offerRange === undefined && publicView.data?.pendingBidCount === undefined,
+      `offerRange ${JSON.stringify(publicView.data?.offerRange)}`);
+    check('but the public view does say offers are open',
+      publicView.data?.acceptsOffers === true, `acceptsOffers ${publicView.data?.acceptsOffers}`);
+
+    const buyerView = await call('GET', `/v1/marketplace/listings/${listingId}`, {
+      token: bidder.token,
+    });
+    check('nor to a logged-in buyer', buyerView.data?.offerRange === undefined,
+      `offerRange ${JSON.stringify(buyerView.data?.offerRange)}`);
+
+    const stranger = await call('GET', `/v1/marketplace/listings/${listingId}/private`, {
+      token: bidder.token,
+    });
+    check('the owner view is 404 to anyone else', stranger.status === 404,
+      `status ${stranger.status}`);
+
+    const ownBid = await call('POST', `/v1/marketplace/listings/${listingId}/bids`, {
+      token: client.token,
+      body: { amount: { amountMinor: FLOOR, currency: 'DZD' } },
+    });
+    check('a seller cannot bid on their own listing',
+      ownBid.data?.error?.code === 'CANNOT_BID_ON_OWN_LISTING', `${ownBid.status}`);
+
+    const wrongCurrency = await call('POST', `/v1/marketplace/listings/${listingId}/bids`, {
+      token: bidder.token,
+      body: { amount: { amountMinor: FLOOR, currency: 'EUR' } },
+    });
+    check('a mismatched currency is refused',
+      wrongCurrency.data?.error?.code === 'CURRENCY_MISMATCH', `${wrongCurrency.status}`);
+
+    const before = await call('GET', '/v1/notifications?limit=100', { token: client.token });
+    const bidNotesBefore = (before.data?.items ?? []).filter((n) => n.type === 'listing.bid').length;
+
+    // ── a lowball: recorded, and the seller is NOT interrupted ──────────
+    const lowball = await call('POST', `/v1/marketplace/listings/${listingId}/bids`, {
+      token: bidder.token,
+      body: { amount: { amountMinor: 90_000_00, currency: 'DZD' }, message: 'cash tout de suite' },
+    });
+    check('a lowball is accepted and recorded', lowball.status === 201, `status ${lowball.status}`);
+    check('and the buyer is not told where it landed',
+      lowball.data?.standing === undefined, `standing ${lowball.data?.standing}`);
+
+    const sellerSees = await call('GET', `/v1/marketplace/listings/${listingId}/bids`, {
+      token: client.token,
+    });
+    const low = (sellerSees.data?.items ?? [])[0];
+    check('the seller can see it, with its standing', low?.standing === 'below_range',
+      `standing ${low?.standing}`);
+
+    /*
+      Give the relay a fair chance to deliver a notification that should NOT
+      exist, rather than declaring success because we looked too early.
+    */
+    await new Promise((r) => setTimeout(r, 6000));
+    const afterLow = await call('GET', '/v1/notifications?limit=100', { token: client.token });
+    check('THE SELLER IS NOT NOTIFIED about a bid below the range',
+      (afterLow.data?.items ?? []).filter((n) => n.type === 'listing.bid').length === bidNotesBefore,
+      `${(afterLow.data?.items ?? []).filter((n) => n.type === 'listing.bid').length} vs ${bidNotesBefore}`);
+
+    // ── in range: the seller hears about it ────────────────────────────
+    const inRange = await call('POST', `/v1/marketplace/listings/${listingId}/bids`, {
+      token: bidder.token,
+      body: { amount: { amountMinor: 175_000_00, currency: 'DZD' } },
+    });
+    check('raising an offer is accepted', inRange.status === 201, `status ${inRange.status}`);
+
+    const afterRaise = await call('GET', `/v1/marketplace/listings/${listingId}/bids`, {
+      token: client.token,
+    });
+    const live = (afterRaise.data?.items ?? []).filter((b) => b.status === 'pending');
+    check('raising supersedes the old offer, so the seller sees one per buyer',
+      live.length === 1 && live[0].amount.amountMinor === 175_000_00,
+      `${live.length} live, ${live[0]?.amount?.amountMinor}`);
+    check('the superseded one is kept in the history',
+      (afterRaise.data?.items ?? []).some((b) => b.status === 'superseded'));
+
+    const notified = await eventually('the seller IS notified about a bid in range', async () => {
+      const res = await call('GET', '/v1/notifications?limit=100', { token: client.token });
+      const notes = (res.data?.items ?? []).filter((n) => n.type === 'listing.bid');
+      return notes.length > bidNotesBefore ? notes : null;
+    });
+    if (notified) ok('the seller IS notified about a bid in range', `${notified.length} notification(s)`);
+
+    // ── above the range: better news, still notified ───────────────────
+    const generous = await call('POST', `/v1/marketplace/listings/${listingId}/bids`, {
+      token: bidder2.token,
+      body: { amount: { amountMinor: 200_000_00, currency: 'DZD' } },
+    });
+    check('a bid above the range is accepted', generous.status === 201, `status ${generous.status}`);
+
+    const sellerAll = await call('GET', `/v1/marketplace/listings/${listingId}/bids`, {
+      token: client.token,
+    });
+    const top = (sellerAll.data?.items ?? [])[0];
+    check('the seller list is highest first', top?.amount?.amountMinor === 200_000_00,
+      `top ${top?.amount?.amountMinor}`);
+    check('and marks it above the range', top?.standing === 'above_range', `${top?.standing}`);
+
+    const aboveNotified = await eventually(
+      'the seller is notified about a bid ABOVE the range too',
+      async () => {
+        const res = await call('GET', '/v1/notifications?limit=100', { token: client.token });
+        const notes = (res.data?.items ?? []).filter((n) => n.type === 'listing.bid');
+        return notes.length > bidNotesBefore + 1 ? notes : null;
+      },
+    );
+    if (aboveNotified) ok('the seller is notified about a bid ABOVE the range too');
+
+    // ── a bidder must not see a rival's offer ──────────────────────────
+    const rivalView = await call('GET', `/v1/marketplace/listings/${listingId}/bids`, {
+      token: bidder.token,
+    });
+    const mine = rivalView.data?.items ?? [];
+    check('a buyer sees only their own offers',
+      mine.length > 0 && mine.every((b) => b.buyerAccountId === bidder.accountId),
+      `${mine.length} item(s)`);
+    check('and never a standing', mine.every((b) => b.standing === undefined));
+
+    // ── accepting one declines the rest ───────────────────────────────
+    const winnerId = top?.id;
+    const accepted = await call('POST', `/v1/marketplace/bids/${winnerId}/accept`, {
+      token: client.token,
+    });
+    check('the seller can accept an offer', accepted.data?.status === 'accepted',
+      `${accepted.status} -> ${accepted.data?.status}`);
+
+    const afterAccept = await call('GET', `/v1/marketplace/listings/${listingId}/bids`, {
+      token: client.token,
+    });
+    const stillPending = (afterAccept.data?.items ?? []).filter((b) => b.status === 'pending');
+    check('ONE CAR, ONE BUYER: every other live offer is declined',
+      stillPending.length === 0, `${stillPending.length} still pending`);
+
+    const twice = await call('POST', `/v1/marketplace/bids/${winnerId}/accept`, {
+      token: client.token,
+    });
+    check('accepting twice is a 409', twice.status === 409,
+      `${twice.status} ${twice.data?.error?.code}`);
+
+    const loserTold = await eventually('the losing bidder is told the car went elsewhere', async () => {
+      const res = await call('GET', '/v1/notifications?limit=100', { token: bidder.token });
+      return (res.data?.items ?? []).find((n) => n.type === 'listing.bid.declined') ?? null;
+    });
+    if (loserTold) ok('the losing bidder is told the car went elsewhere');
+
+    const winnerTold = await eventually('the winning bidder is told', async () => {
+      const res = await call('GET', '/v1/notifications?limit=100', { token: bidder2.token });
+      return (res.data?.items ?? []).find((n) => n.type === 'listing.bid.accepted') ?? null;
+    });
+    if (winnerTold) ok('the winning bidder is told');
+
+    const filtered = await call('GET', '/v1/marketplace/listings?fuelType=diesel&transmission=manual&minYear=2015');
+    check('the new browse filters work',
+      (filtered.data?.items ?? []).some((l) => l.id === listingId), `status ${filtered.status}`);
+  }
+
   section('reclamations');
   const filed = await call('POST', '/v1/reclamations', {
     token: client.token,

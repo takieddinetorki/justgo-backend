@@ -4,10 +4,11 @@ import { MARKETPLACE_PORT } from './contract/marketplace.port';
 import { MarketplaceService, MARKETPLACE_REPOSITORY } from './application/marketplace.service';
 import { PgMarketplaceRepository } from './infra/pg-marketplace.repository';
 import { MarketplaceController } from './marketplace.controller';
+import { BidsController } from './bids.controller';
 
 /** Owns the `marketplace` schema — used-car listings + buyer contact (§7). */
 @Module({
-  controllers: [MarketplaceController],
+  controllers: [MarketplaceController, BidsController],
   providers: [
     {
       provide: MARKETPLACE_REPOSITORY,

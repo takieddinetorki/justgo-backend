@@ -351,6 +351,89 @@ function schemas(): Record<string, unknown> {
           enum: ['draft', 'published', 'pending_review', 'sold', 'withdrawn'],
         },
         createdAt: { type: 'string', format: 'date-time' },
+        fuelType: {
+          type: 'string',
+          enum: ['essence', 'diesel', 'gpl', 'hybrid', 'electric'],
+          nullable: true,
+        },
+        transmission: { type: 'string', enum: ['manual', 'automatic'], nullable: true },
+        bodyType: {
+          type: 'string',
+          enum: [
+            'citadine',
+            'berline',
+            'break',
+            'suv',
+            'monospace',
+            'utilitaire',
+            'coupe',
+            'cabriolet',
+            'pickup',
+          ],
+          nullable: true,
+        },
+        colour: { type: 'string', nullable: true },
+        doors: { type: 'integer', nullable: true },
+        engineHp: { type: 'integer', nullable: true },
+        condition: { type: 'string', enum: ['new', 'used', 'damaged'], nullable: true },
+        isCustomsCleared: {
+          type: 'boolean',
+          nullable: true,
+          description:
+            'Dedouanee. Null means the seller did not say, which is NOT the same as no — render the three cases differently.',
+        },
+        papersInOrder: { type: 'boolean', nullable: true },
+        ownerCount: { type: 'integer', nullable: true },
+        accidentFree: { type: 'boolean', nullable: true },
+        acceptsOffers: {
+          type: 'boolean',
+          description:
+            'Whether this listing takes offers. Safe to show anyone — it says bidding is open without saying what would be accepted.',
+        },
+        offerRange: {
+          allOf: [ref('OfferRange')],
+          nullable: true,
+          description: 'Owner view only. Absent from every public read.',
+        },
+        pendingBidCount: { type: 'integer', description: 'Owner view only.' },
+      },
+    },
+    OfferRange: {
+      type: 'object',
+      description:
+        'The seller acceptance range. **Present only in the owner own view.** A buyer who learns the floor bids exactly the floor, so this never appears on a public read.',
+      properties: {
+        min: { allOf: [ref('Money')], description: 'The least the seller would consider.' },
+        max: {
+          allOf: [ref('Money')],
+          nullable: true,
+          description: 'The top of what they hoped for. Null means anything from the floor up.',
+        },
+      },
+    },
+    Bid: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        listingId: { type: 'string', format: 'uuid' },
+        buyerAccountId: { type: 'string', format: 'uuid' },
+        amount: ref('Money'),
+        message: { type: 'string', nullable: true },
+        status: {
+          type: 'string',
+          enum: ['pending', 'accepted', 'declined', 'withdrawn', 'superseded'],
+          description:
+            '`superseded` means this buyer raised their offer — the newer one replaced it.',
+        },
+        standing: {
+          type: 'string',
+          enum: ['below_range', 'in_range', 'above_range'],
+          description:
+            'Where it fell against the range when it was placed. **Returned to the seller only** — telling a buyer their offer was below range hands them the floor by bisection. Recorded at placement, so moving the range later does not rewrite it.',
+        },
+        declineReason: { type: 'string', nullable: true },
+        decidedAt: { type: 'string', format: 'date-time', nullable: true },
+        createdAt: { type: 'string', format: 'date-time' },
       },
     },
     NearbySupplier: {
@@ -1764,8 +1847,26 @@ function enrich(doc: OpenAPIObject): void {
     summary: 'Browse listings',
     parameters: [
       { name: 'brand', in: 'query', schema: { type: 'string' } },
+      { name: 'model', in: 'query', schema: { type: 'string' } },
       { name: 'maxAmountMinor', in: 'query', schema: { type: 'integer' } },
-      { name: 'limit', in: 'query', schema: { type: 'integer', maximum: 100 } },
+      {
+        name: 'fuelType',
+        in: 'query',
+        schema: { type: 'string', enum: ['essence', 'diesel', 'gpl', 'hybrid', 'electric'] },
+      },
+      { name: 'transmission', in: 'query', schema: { type: 'string', enum: ['manual', 'automatic'] } },
+      { name: 'bodyType', in: 'query', schema: { type: 'string' } },
+      { name: 'condition', in: 'query', schema: { type: 'string', enum: ['new', 'used', 'damaged'] } },
+      { name: 'city', in: 'query', schema: { type: 'string' } },
+      { name: 'minYear', in: 'query', schema: { type: 'integer' } },
+      { name: 'maxMileageKm', in: 'query', schema: { type: 'integer' } },
+      {
+        name: 'acceptsOffers',
+        in: 'query',
+        schema: { type: 'boolean' },
+        description: 'Only listings taking offers.',
+      },
+      { name: 'limit', in: 'query', schema: { type: 'integer', maximum: 200 } },
     ],
     responses: { ...ok(listOf('Listing')), ...errors() },
   });
@@ -1790,6 +1891,41 @@ function enrich(doc: OpenAPIObject): void {
           country: { type: 'string', minLength: 2, maxLength: 2, example: 'DZ' },
           lat: { type: 'number' },
           lng: { type: 'number' },
+          fuelType: { type: 'string', enum: ['essence', 'diesel', 'gpl', 'hybrid', 'electric'] },
+          transmission: { type: 'string', enum: ['manual', 'automatic'] },
+          bodyType: {
+            type: 'string',
+            enum: [
+              'citadine',
+              'berline',
+              'break',
+              'suv',
+              'monospace',
+              'utilitaire',
+              'coupe',
+              'cabriolet',
+              'pickup',
+            ],
+          },
+          colour: { type: 'string', maxLength: 40 },
+          doors: { type: 'integer', minimum: 1, maximum: 9 },
+          engineHp: { type: 'integer', minimum: 1, maximum: 2000 },
+          condition: { type: 'string', enum: ['new', 'used', 'damaged'] },
+          isCustomsCleared: { type: 'boolean', description: 'Dedouanee. Omit if unknown.' },
+          papersInOrder: { type: 'boolean' },
+          ownerCount: { type: 'integer', minimum: 0 },
+          accidentFree: { type: 'boolean' },
+          offerRange: {
+            type: 'object',
+            required: ['minMinor'],
+            description:
+              'Opens bidding, and stays private to you. currency defaults to the asking price. See PUT /offer-range.',
+            properties: {
+              minMinor: { type: 'integer', minimum: 0 },
+              maxMinor: { type: 'integer', minimum: 0 },
+              currency: { type: 'string', example: 'DZD' },
+            },
+          },
         },
       },
       {
@@ -1800,6 +1936,12 @@ function enrich(doc: OpenAPIObject): void {
         amount: { amountMinor: 185000000, currency: 'DZD' },
         city: 'Alger',
         country: 'DZ',
+        fuelType: 'diesel',
+        transmission: 'manual',
+        bodyType: 'citadine',
+        isCustomsCleared: true,
+        papersInOrder: true,
+        offerRange: { minMinor: 170000000, maxMinor: 185000000 },
       },
     ),
     responses: { ...ok(ref('Listing')), ...errors() },
@@ -1818,6 +1960,110 @@ function enrich(doc: OpenAPIObject): void {
       { message: 'Bonjour, la voiture est toujours disponible ?' },
     ),
     responses: { ...ok(ref('Conversation')), ...errors() },
+  });
+
+  // ── Marketplace · offers ──────────────────────────────────────────────
+  set('/v1/marketplace/listings/{id}/private', 'get', {
+    tags: ['Client · Marketplace'],
+    summary: 'My own listing, with the private parts',
+    description:
+      'The owner view. Adds `offerRange` and `pendingBidCount`, neither of which appears on the public `GET /v1/marketplace/listings/{id}`. **404 if the listing is not yours** — not 403, so a stranger cannot confirm one exists.',
+    responses: { ...ok(ref('Listing')), ...errors() },
+  });
+  set('/v1/marketplace/listings/{id}/offer-range', 'put', {
+    tags: ['Client · Marketplace'],
+    summary: 'Set the acceptance range (opens bidding)',
+    description:
+      '**Setting a range is what opens bidding** — a listing without one refuses offers with 422 `OFFERS_NOT_ACCEPTED`. The range is **private to the seller** and never appears on a public read: a buyer who learns the floor bids exactly the floor, and every offer above it is lost. A bid at or above `minMinor` notifies the seller; anything below is recorded and stays silent, which is the whole point. `maxMinor` is optional and does **not** cap what you hear about — a bid above the top is better news than the range asked for, so it notifies too. `currency` may be omitted when the listing has an asking price, and is then taken from it. PUT rather than POST because this is one value you replace, so a retried request leaves the same range.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['minMinor'],
+        properties: {
+          minMinor: {
+            type: 'integer',
+            minimum: 0,
+            description: 'The least you would seriously consider, in minor units.',
+          },
+          maxMinor: {
+            type: 'integer',
+            minimum: 0,
+            description: 'The top of what you hoped for. Optional; must not be below minMinor.',
+          },
+          currency: { type: 'string', example: 'DZD' },
+        },
+      },
+      { minMinor: 180000000, maxMinor: 200000000, currency: 'DZD' },
+    ),
+    responses: { ...ok(ref('Listing')), ...errors() },
+  });
+  set('/v1/marketplace/listings/{id}/offer-range', 'delete', {
+    tags: ['Client · Marketplace'],
+    summary: 'Close bidding',
+    description:
+      'Removes the range. Offers already placed keep the standing they were given when they were made — a bid that was in range when it arrived does not retroactively stop having been, and the seller was already told about it.',
+    responses: { ...ok(ref('Listing')), ...errors() },
+  });
+  set('/v1/marketplace/listings/{id}/bids', 'post', {
+    tags: ['Client · Marketplace'],
+    summary: 'Make an offer',
+    description:
+      'Needs `listing.bid`. The currency must match the range (422 `CURRENCY_MISMATCH`), the listing must be taking offers (422 `OFFERS_NOT_ACCEPTED`), and you cannot bid on your own listing (422 `CANNOT_BID_ON_OWN_LISTING`). **Raising an offer is a new POST** — it supersedes your previous one, so the seller only ever sees one current number from you, and there is no update endpoint. The response deliberately **does not say whether your offer reached the range**: revealing that would let anyone find the floor by bisection — bid, read the standing, halve the interval, repeat.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['amount'],
+        properties: {
+          amount: ref('Money'),
+          message: { type: 'string', maxLength: 1000 },
+        },
+      },
+      {
+        amount: { amountMinor: 190000000, currency: 'DZD' },
+        message: 'Je peux passer ce week-end.',
+      },
+    ),
+    responses: {
+      '201': { description: 'Placed', content: { 'application/json': { schema: ref('Bid') } } },
+      ...errors(),
+    },
+  });
+  set('/v1/marketplace/listings/{id}/bids', 'get', {
+    tags: ['Client · Marketplace'],
+    summary: 'Offers on a listing',
+    description:
+      'The **seller** sees every offer, highest first, each with its `standing`. Anyone else sees only their own offers, without `standing`.',
+    responses: { ...ok(listOf('Bid')), ...errors() },
+  });
+  set('/v1/marketplace/bids', 'get', {
+    tags: ['Client · Marketplace'],
+    summary: 'Every offer I have made',
+    parameters: [{ name: 'limit', in: 'query', schema: { type: 'integer', maximum: 200 } }],
+    responses: { ...ok(listOf('Bid')), ...errors() },
+  });
+  set('/v1/marketplace/bids/{id}', 'delete', {
+    tags: ['Client · Marketplace'],
+    summary: 'Withdraw my offer',
+    description: '404 once the seller has decided it — there is nothing left to take back.',
+    responses: { ...ok(ref('Bid')), ...errors() },
+  });
+  set('/v1/marketplace/bids/{id}/accept', 'post', {
+    tags: ['Client · Marketplace'],
+    summary: 'Accept an offer (seller)',
+    description:
+      '**Declines every other live offer on the listing in the same transaction** — one car, one buyer — and notifies each of those buyers that the car went elsewhere. 409 `BID_ALREADY_DECIDED` if it is not pending. **The listing status does not change:** a car sale here concludes with paperwork days later, so marking it sold the moment a price is agreed would be a claim the seller then has to undo. Accepting agrees a price; mark the listing sold yourself when it is done.',
+    responses: { ...ok(ref('Bid')), ...errors() },
+  });
+  set('/v1/marketplace/bids/{id}/decline', 'post', {
+    tags: ['Client · Marketplace'],
+    summary: 'Decline an offer (seller)',
+    description:
+      'A reason is optional — declining an offer on a used car is an ordinary negotiation move, and "no thanks" is a complete answer. The buyer is notified either way, because silence after bidding is what buyers complain about everywhere.',
+    requestBody: body(
+      { type: 'object', properties: { reason: { type: 'string', maxLength: 1000 } } },
+      { reason: 'Trop bas pour le moment' },
+    ),
+    responses: { ...ok(ref('Bid')), ...errors() },
   });
 
   // ── Messaging ─────────────────────────────────────────────────────────
