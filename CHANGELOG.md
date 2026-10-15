@@ -11,6 +11,64 @@ the test suite — a distinction this project has earned the hard way.
 
 ---
 
+## 2026-10-15
+
+### Added
+
+**Selling a car takes a real spec sheet** — fuel type, transmission, body type,
+colour, doors, engine power, condition, owner count, accident history, and two
+this market cares about that most templates omit: whether the car is
+customs-cleared (*dédouanée*) and whether its papers are in order. All
+three-state (`true` / `false` / absent), because "unknown" and "no" are
+different answers to a buyer. Browse filters on the ones people actually filter
+by.
+
+**Offers against a private acceptance range.** A seller names a range they
+would accept; buyers make offers; the seller is notified only when an offer
+reaches it.
+
+| | |
+|---|---|
+| `PUT /v1/marketplace/listings/{id}/offer-range` | opens bidding |
+| `DELETE /v1/marketplace/listings/{id}/offer-range` | closes it |
+| `POST /v1/marketplace/listings/{id}/bids` | make an offer |
+| `GET /v1/marketplace/listings/{id}/bids` | seller: all, best first; buyer: own |
+| `GET /v1/marketplace/listings/{id}/private` | the owner view |
+| `GET /v1/marketplace/bids` | every offer I made |
+| `DELETE /v1/marketplace/bids/{id}` | withdraw mine |
+| `POST /v1/marketplace/bids/{id}/accept` | seller accepts |
+| `POST /v1/marketplace/bids/{id}/decline` | seller declines |
+
+**The range is private, and that is the security of the whole feature.** A
+buyer who can see the floor offers exactly the floor, and every offer above it
+is lost. So it is not a column on `car_listings`: Postgres RLS is row-level,
+not column-level, and that table is world-readable, so a floor stored there
+would be readable by anyone through PostgREST. It lives in its own table with
+its own policy; the public reads join it only to learn *whether* offers are
+open. Placing an offer does not tell the buyer where it landed either —
+otherwise the floor falls to bisection.
+
+**Below the floor is recorded but silent.** That silence is the feature: a
+seller pinged for every lowball stops reading the pings, and the one real offer
+then arrives in a muted channel. **Above** the range notifies too — a bid over
+the top is better news than the range asked for, and a seller not told about
+the best offer they received would rightly call that a bug. Both ends
+inclusive.
+
+Accepting an offer declines every other live one in the same transaction — one
+car, one buyer — and tells those buyers why. It deliberately does **not** mark
+the listing sold: a car sale here finishes with paperwork days later, so
+claiming the sale at the moment a price is agreed is something the seller then
+has to undo.
+
+### Migrations
+
+`0027` marketplace bidding. New permission: `listing.bid`, its own bit rather
+than reusing `listing.contact`, so bidding can be withheld from unverified
+accounts as a data change.
+
+---
+
 ## 2026-10-13
 
 The release that closes the gap between what the shipped Flutter app contains

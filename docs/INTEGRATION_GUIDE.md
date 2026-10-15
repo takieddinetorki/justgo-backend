@@ -505,12 +505,27 @@ live state `→ cancelled`. (Which supplier is offered a job — dispatch matchi
 is not yet finalised; the request/status flow is live.)
 
 ### Client · Marketplace (used cars) — Phase 3
-- **`GET /v1/marketplace/listings?brand=&maxAmountMinor=&limit=`** → `{ items: Listing[] }`
-  (public; published listings only).
+- **`GET /v1/marketplace/listings`** → `{ items: Listing[] }` (public; published
+  listings only). Filters: `brand`, `model`, `maxAmountMinor`, `fuelType`,
+  `transmission`, `bodyType`, `condition`, `city`, `minYear`, `maxMileageKm`,
+  `acceptsOffers`, `limit`.
 - **`GET /v1/marketplace/listings/{id}`** → `Listing` (public).
 - **`POST /v1/marketplace/listings`** body
-  `{ title, brand?, model?, year?, mileageKm?, amount?, description?, photoUrls?, city?, country?, lat?, lng? }`
+  `{ title, brand?, model?, year?, mileageKm?, amount?, description?, photoUrls?,
+     city?, country?, lat?, lng?, fuelType?, transmission?, bodyType?, colour?,
+     doors?, engineHp?, condition?, isCustomsCleared?, papersInOrder?,
+     ownerCount?, accidentFree?, offerRange? }`
   → `Listing` (auto-published in beta). Needs `listing.publish`.
+  - `fuelType`: `essence | diesel | gpl | hybrid | electric`
+  - `transmission`: `manual | automatic`
+  - `bodyType`: `citadine | berline | break | suv | monospace | utilitaire |
+    coupe | cabriolet | pickup`
+  - `condition`: `new | used | damaged`
+  - **`isCustomsCleared` (*dédouanée*) and `papersInOrder` are three-state:**
+    `true`, `false`, or absent. Absent means the seller did not say, which is
+    not the same as "no" — render the three differently rather than collapsing
+    the last two, or you will label honest listings as problem cars.
+  - `offerRange` opens bidding on creation. See **Offers** below.
 - **`POST /v1/marketplace/listings/{id}/contact`** body `{ message? }` →
   `{ contacted:true }` (one contact per buyer per listing; can't contact your own).
   Needs `listing.contact`.
@@ -520,8 +535,99 @@ is not yet finalised; the request/status flow is live.)
 { "id":"uuid","sellerAccountId":"uuid","supplierId":null,"title":"BMW 320d 2016",
   "brand":"BMW","model":"320d","year":2016,"mileageKm":120000,
   "amount":{"amountMinor":1500000,"currency":"EUR"},"description":null,
-  "photoUrls":[],"city":"Paris","country":"FR","status":"published","createdAt":"…" }
+  "photoUrls":[],"city":"Paris","country":"FR","status":"published","createdAt":"…",
+  "fuelType":"diesel","transmission":"automatic","bodyType":"berline",
+  "colour":"Noir","doors":5,"engineHp":190,"condition":"used",
+  "isCustomsCleared":true,"papersInOrder":true,"ownerCount":2,"accidentFree":true,
+  "acceptsOffers":true }
 ```
+
+`offerRange` and `pendingBidCount` appear **only** on
+`GET /v1/marketplace/listings/{id}/private`, the owner's own view.
+
+
+#### Offers (bidding) — Phase 3
+
+A seller names a **range of prices they would accept**, buyers make offers, and
+the seller is notified only when an offer reaches that range.
+
+**The range is private and must stay that way in your UI too.** It is returned
+only from `GET /v1/marketplace/listings/{id}/private`, never from the public
+read or the browse list. A buyer who learns the floor offers exactly the floor,
+and every offer above it that the seller would have got is lost. For the same
+reason, the response to placing an offer does **not** tell the buyer whether it
+reached the range.
+
+- **`PUT /v1/marketplace/listings/{id}/offer-range`** body
+  `{ minMinor, maxMinor?, currency? }` → `Listing`. Needs `listing.publish`.
+  - **Setting a range is what opens bidding.** A listing without one answers
+    **422 `OFFERS_NOT_ACCEPTED`**.
+  - `currency` may be omitted when the listing has an asking price, and is then
+    taken from it. It must match that price.
+  - `maxMinor` is optional and **does not cap what the seller hears about** —
+    see the table below.
+  - PUT, not POST: this is one value you replace, so a retried request leaves
+    the same range rather than a second one.
+- **`DELETE /v1/marketplace/listings/{id}/offer-range`** → `Listing`. Closes
+  bidding. Offers already placed keep the standing they were given.
+- **`GET /v1/marketplace/listings/{id}/private`** → `Listing` with
+  `offerRange` and `pendingBidCount`. **404 if it is not yours.**
+- **`POST /v1/marketplace/listings/{id}/bids`** body
+  `{ amount: { amountMinor, currency }, message? }` → **201** `Bid`. Needs
+  `listing.bid`.
+  - **Raising an offer is another POST.** It supersedes your previous one, so
+    the seller only ever sees one current number from you. There is no update
+    endpoint and you do not need to withdraw first.
+  - 422 `OFFERS_NOT_ACCEPTED` · `CURRENCY_MISMATCH` ·
+    `CANNOT_BID_ON_OWN_LISTING`.
+  - Throttled to 20/min.
+- **`GET /v1/marketplace/listings/{id}/bids`** → `{ items: Bid[] }`.
+  - The **seller** sees every offer, highest first, each with `standing`.
+  - Anyone else sees **only their own**, with no `standing`.
+- **`GET /v1/marketplace/bids?limit=`** → every offer the caller has made.
+- **`DELETE /v1/marketplace/bids/{id}`** → `Bid`. The buyer takes it back; 404
+  once the seller has decided it.
+- **`POST /v1/marketplace/bids/{id}/accept`** → `Bid`. Seller only.
+  - **Declines every other live offer on the listing**, in the same
+    transaction, and notifies those buyers. One car, one buyer.
+  - **409 `BID_ALREADY_DECIDED`** if it is not pending.
+  - **The listing status does not change.** A car sale here finishes with
+    paperwork days later; marking it `sold` the moment a price is agreed would
+    be a claim the seller has to undo. Accepting agrees a price — mark the
+    listing sold yourself when it is actually done.
+- **`POST /v1/marketplace/bids/{id}/decline`** body `{ reason? }` → `Bid`.
+  Seller only. A reason is optional; the buyer is notified either way.
+
+**Who gets notified, and when:**
+
+| The offer is | `standing` | Seller notified | Why |
+|---|---|---|---|
+| below `minMinor` | `below_range` | **no** | The silence is the point. A seller pinged for every lowball stops reading the pings, and the one real offer then lands in a muted channel. The offer is still recorded and still visible on the listing. |
+| from `minMinor` to `maxMinor` | `in_range` | yes | What the seller asked to hear about. |
+| above `maxMinor` | `above_range` | **yes** | Better news than the range asked for. The ceiling describes what the seller hoped for; it does not cap what reaches them. |
+
+Both ends are **inclusive** — a seller who says "from 1 700 000" means that
+number is acceptable.
+
+`standing` is recorded when the offer is placed, not worked out when you read
+it. If the seller moves their range afterwards, an offer that was in range when
+it arrived keeps saying so — the notification already went out.
+
+Notification types to expect: `listing.bid` (seller), `listing.bid.accepted`
+and `listing.bid.declined` (buyer). A decline carries
+`supersededByAcceptance: true` when the car went to someone else.
+
+`Bid`:
+```json
+{ "id":"uuid","listingId":"uuid","buyerAccountId":"uuid",
+  "amount":{"amountMinor":17500000,"currency":"DZD"},
+  "message":"Je peux passer ce week-end.",
+  "status":"pending","standing":"in_range",
+  "declineReason":null,"decidedAt":null,"createdAt":"…" }
+```
+
+`status` is `pending | accepted | declined | withdrawn | superseded`.
+`superseded` means that buyer raised their offer and the newer one replaced it.
 
 ### Supplier · Calendar (reservations) — Phase 3 (supplier-scoped)
 - **`GET /v1/supplier/reservations?limit=`** → `{ items: Reservation[] }`.
