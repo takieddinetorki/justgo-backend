@@ -36,6 +36,7 @@ const BUCKETS = [
   'message-attachments',
   'post-media',
   'driver-documents',
+  'supplier-media',
   'documents',
 ];
 

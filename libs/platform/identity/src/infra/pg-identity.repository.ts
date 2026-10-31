@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { asId, type AccountId, type Uuid } from '@justgo/kernel';
 import { makeEvent, PgOutboxStore } from '@justgo/events';
 import { Account } from '../domain/account';
-import { ROLE_ASSIGNED, USER_REGISTERED } from '../contract/events';
+import { ACCOUNT_ANONYMISED, ROLE_ASSIGNED, USER_REGISTERED } from '../contract/events';
 
 interface AccountRow {
   id: string;
@@ -11,14 +11,32 @@ interface AccountRow {
   family_name: string | null;
   email: string | null;
   phone: string | null;
+  dob: string | null;
+  city: string | null;
+  country: string | null;
+  avatar_bucket: string | null;
+  avatar_path: string | null;
   locale: string;
+  deleted_at: Date | null;
   created_at: Date;
   roles: string[] | null;
 }
 
+/*
+  `group by a.id` covers every column of `a`: id is the primary key, so
+  Postgres treats the rest as functionally dependent on it. The aggregate is
+  only there to collapse the role join into an array.
+
+  `dob` comes back as a `YYYY-MM-DD` string rather than a Date because the
+  pg driver is configured to leave `date` alone — a calendar date pushed
+  through a timestamp shifts by a day either side of UTC, and a birthday
+  that moves is worse than one that is a string.
+*/
 const SELECT_ACCOUNT = `
   select a.id, a.auth_user_id, a.first_name, a.family_name, a.email, a.phone,
-         a.locale, a.created_at,
+         to_char(a.dob, 'YYYY-MM-DD') as dob, a.city, a.country,
+         a.avatar_bucket, a.avatar_path,
+         a.locale, a.deleted_at, a.created_at,
          array_remove(array_agg(r.key), null) as roles
     from identity.accounts a
     left join identity.user_roles ur on ur.account_id = a.id
@@ -47,6 +65,13 @@ export class PgIdentityRepository {
       row.locale,
       row.roles ?? [],
       row.created_at,
+      row.dob,
+      row.city,
+      row.country,
+      row.avatar_bucket && row.avatar_path
+        ? { bucket: row.avatar_bucket, path: row.avatar_path }
+        : null,
+      row.deleted_at,
     );
   }
 
@@ -116,10 +141,91 @@ export class PgIdentityRepository {
   async saveProfile(account: Account): Promise<void> {
     await this.pool.query(
       `update identity.accounts
-          set first_name = $2, family_name = $3, phone = $4, locale = $5, updated_at = now()
+          set first_name = $2, family_name = $3, phone = $4, locale = $5,
+              email = $6, dob = $7::date, city = $8, country = $9,
+              avatar_bucket = $10, avatar_path = $11,
+              updated_at = now()
         where id = $1`,
-      [account.id, account.firstName, account.familyName, account.phone, account.locale],
+      [
+        account.id,
+        account.firstName,
+        account.familyName,
+        account.phone,
+        account.locale,
+        account.email,
+        account.dob,
+        account.city,
+        account.country,
+        account.avatar?.bucket ?? null,
+        account.avatar?.path ?? null,
+      ],
     );
+  }
+
+  /**
+   * Does this account act for any business?
+   *
+   * Asked before closing an account, and answered from identity's OWN data:
+   * a supplier-scoped row in `user_roles` is what makes somebody an owner,
+   * so there is no need to read the suppliers schema (§17.4) to find out.
+   */
+  async hasSupplierScope(accountId: AccountId): Promise<boolean> {
+    const res = await this.pool.query(
+      `select 1 from identity.user_roles
+        where account_id = $1 and scope_type in ('supplier', 'branch')
+        limit 1`,
+      [accountId],
+    );
+    return res.rowCount === 1;
+  }
+
+  /**
+   * Close an account: blank the identifiers, drop every role.
+   *
+   * Both in one transaction, because they are one act. Leaving the roles
+   * behind would anonymise a person who could still create orders; blanking
+   * nothing and only dropping roles would lock them out while their name
+   * stayed on the feed.
+   *
+   * The emitted event lets other modules react — a push token is worth
+   * revoking — but no module HAS to: every one of them stores an account id
+   * and reads the name from here, so this write anonymises the person across
+   * the whole product on its own.
+   */
+  async anonymise(account: Account): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query(
+        `update identity.accounts
+            set first_name = null, family_name = null, email = null, phone = null,
+                dob = null, city = null, country = null,
+                avatar_bucket = null, avatar_path = null,
+                anonymised_at = coalesce(anonymised_at, now()),
+                deleted_at = coalesce(deleted_at, now()),
+                updated_at = now()
+          where id = $1`,
+        [account.id],
+      );
+      await client.query(`delete from identity.user_roles where account_id = $1`, [account.id]);
+      await this.outbox.appendWith(client, [
+        makeEvent({
+          type: ACCOUNT_ANONYMISED,
+          aggregateId: account.id,
+          payload: {
+            accountId: account.id,
+            authUserId: account.authUserId,
+            anonymisedAt: new Date().toISOString(),
+          },
+        }),
+      ]);
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async assignRole(

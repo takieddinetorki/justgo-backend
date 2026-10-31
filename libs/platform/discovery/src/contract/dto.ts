@@ -34,6 +34,8 @@ export interface DirectoryQuery {
   verticalKeys?: string[];
   categoryKey?: string;
   city?: string;
+  /** Only businesses JustGo has verified. */
+  verified?: boolean;
   /** When given, each row carries `distanceM` and results rank by it. */
   lat?: number;
   lng?: number;
@@ -50,6 +52,10 @@ export interface DirectorySupplierDTO {
   city: string | null;
   country: string | null;
   rating: number | null;
+  /** How many reviews the rating is over — a 5.0 from one is not a 5.0 from four hundred. */
+  ratingCount: number;
+  /** The badge. Awarded by JustGo; see the suppliers module. */
+  isVerified: boolean;
   /** Only present when the query supplied a location. */
   distanceM?: number;
 }

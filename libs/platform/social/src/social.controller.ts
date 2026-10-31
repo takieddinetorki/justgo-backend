@@ -7,6 +7,7 @@ import {
   Inject,
   Param,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { z } from 'zod';
@@ -25,12 +26,19 @@ const mediaSchema = z
   })
   .strict();
 
+const KINDS = ['announcement', 'promotion', 'arrival', 'job'] as const;
+
 const createSchema = z
   .object({
     body: z.string().max(5000).optional(),
+    kind: z.enum(KINDS).optional(),
     media: z.array(mediaSchema).max(10).optional(),
     asSupplierId: z.string().uuid().optional(),
   })
+  .strict();
+
+const shareSchema = z
+  .object({ channel: z.enum(['link', 'whatsapp', 'facebook', 'other']).optional() })
   .strict();
 
 const commentSchema = z
@@ -45,6 +53,8 @@ const feedSchema = z.object({
   cursor: z.string().max(400).optional(),
   author: z.string().uuid().optional(),
   supplier: z.string().uuid().optional(),
+  kind: z.enum(KINDS).optional(),
+  pinnedFirst: z.coerce.boolean().optional(),
 });
 
 const pageSchema = z.object({
@@ -85,6 +95,8 @@ export class SocialController {
       cursor: parsed.data.cursor,
       authorAccountId: parsed.data.author,
       authorSupplierId: parsed.data.supplier,
+      kind: parsed.data.kind,
+      pinnedFirst: parsed.data.pinnedFirst,
     });
   }
 
@@ -142,6 +154,45 @@ export class SocialController {
   @RequirePermissions('post.interact')
   async unlike(@CurrentAuth() auth: AuthContext, @Param('id') id: string): Promise<PostDTO> {
     return this.social.unlike(auth.accountId, asId<Uuid>(id));
+  }
+
+  /**
+   * Share. Idempotent and not retractable — the count is a reach number, so
+   * it describes something that happened outside the app rather than a mood
+   * that can be changed back.
+   */
+  @Post('posts/:id/share')
+  @RequirePermissions('post.interact')
+  async share(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ): Promise<PostDTO> {
+    const parsed = shareSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new ValidationError('Invalid share', { issues: parsed.error.issues });
+    }
+    return this.social.share(auth.accountId, asId<Uuid>(id), parsed.data.channel);
+  }
+
+  /**
+   * Pin this post to the top of its author's page.
+   *
+   * PUT because there is one pin and this replaces whatever held it — a
+   * retried request leaves exactly the same state, which POST would not
+   * promise. The author's own post only: 404 otherwise, rather than a 403
+   * that would confirm the id is real.
+   */
+  @Put('posts/:id/pin')
+  @RequirePermissions('post.publish')
+  async pin(@CurrentAuth() auth: AuthContext, @Param('id') id: string): Promise<PostDTO> {
+    return this.social.pin(auth.accountId, asId<Uuid>(id));
+  }
+
+  @Delete('posts/:id/pin')
+  @RequirePermissions('post.publish')
+  async unpin(@CurrentAuth() auth: AuthContext, @Param('id') id: string): Promise<PostDTO> {
+    return this.social.unpin(auth.accountId, asId<Uuid>(id));
   }
 
   @Get('posts/:id/comments')

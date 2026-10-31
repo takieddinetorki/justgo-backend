@@ -148,13 +148,19 @@ outbox relay.
 Roles and permissions are **data**, not code. Current seed:
 
 - `client` / `fleet`: `me.*`, `vehicle.manage`, `request.create|read|cancel`,
-  `quote.accept|refuse`, `order.read|create`, `reservation.create`, `listing.*`
+  `quote.accept|refuse`, `order.read|create`, `reservation.create`, `listing.*`,
+  `post.publish|interact`, `review.write`, `reclamation.file`, `driver.apply`
 - `guest`: `request.create`, `request.read`
 - `supplier_owner`: `me.*`, `quote.submit`, `supplier.requests.read`,
   `supplier.profile.manage`, `supplier.catalog.manage`, `order.read`,
-  `reservation.manage`
+  `reservation.manage`, `post.publish|interact`, `review.write`
 - `branch_manager`: like `supplier_owner` minus profile management
 - `ops_admin`: `platform.admin`
+
+`review.write` is its own bit rather than part of `post.interact`: a review
+changes a business's rating and sits on its page for good, a like reaches
+nobody. Holding it is not enough on its own — a review also needs a completed
+order or reservation with that business.
 
 A missing permission returns **403** with the required permission in `details`.
 
@@ -294,13 +300,45 @@ secret, in which case the API holds no key it may sign with.
 
 ### Me
 - **`GET /v1/me`** → `Account`. Self-provisions on first call.
-- **`PUT /v1/me`** body `{ firstName?, familyName?, phone?, locale? }` → `Account`.
+- **`PUT /v1/me`** body
+  `{ firstName?, familyName?, phone?, email?, dob?, city?, country?, avatar?, locale? }`
+  → `Account`.
+  - **`null` clears a field; leaving the key out leaves it alone.** They are
+    different answers — without the first there would be no way to remove a
+    phone number or an avatar once set.
+  - `avatar` is `{ bucket: "avatars", path }`, never a URL. Upload through
+    **`POST /v1/media/uploads`** to the `avatars` bucket and send the returned
+    `path`; a path outside your own upload namespace is **400**.
+  - `email` here is a **contact** address. GoTrue owns the sign-in credential,
+    so changing this does **not** change what the user logs in with.
+  - `dob` is `YYYY-MM-DD`. A future date is **400**.
+- **`DELETE /v1/me`** → `Account` with `deletedAt` set. **Close the account.**
+  - **Anonymisation, not deletion**, and the difference matters to the app.
+    Name, email, phone, date of birth, city and avatar are blanked and every
+    role is dropped, so the person disappears from the feed, from messages and
+    from reviews, and the next sign-in reaches nothing. The row itself stays,
+    because orders, reservations and reclamations belong to the other party as
+    much as to this one — deleting it would destroy a supplier's record of
+    sales they made.
+  - **Invoices and the other sealed documents keep the name they were issued
+    under.** They render from a snapshot taken at issue, signed over their
+    exact bytes, under a number in a gapless fiscal series. A tax document is
+    not ours to rewrite, and editing the bytes would break the signature that
+    proves nobody has. Say so in the confirmation screen rather than promising
+    an erasure the law does not allow.
+  - **422 `ACCOUNT_OWNS_BUSINESS`** while the account still acts for a
+    supplier. Close the business first (`DELETE /v1/supplier/profile`).
+  - Idempotent, and irreversible. **Drop the session token as soon as this
+    returns**: permissions are baked into a token at exchange, so one already
+    issued keeps working until it expires.
 
 `Account`:
 ```json
 { "id":"uuid","authUserId":"uuid","firstName":null,"familyName":null,
-  "email":"user@example.com","phone":null,"locale":"en",
-  "roles":["client"],"createdAt":"2026-08-26T17:00:00.000Z" }
+  "email":"user@example.com","phone":null,"dob":null,"city":null,
+  "country":null,"avatar":null,"locale":"en",
+  "roles":["client"],"deletedAt":null,
+  "createdAt":"2026-08-26T17:00:00.000Z" }
 ```
 
 ### Client · Garage (vehicles) — Phase 2
@@ -431,6 +469,122 @@ All require the `vehicle.manage` permission (client/fleet roles).
     alone, so the app can collect them over several screens.
   - `legalName` is the registered name as it must appear on the invoice, which
     is often not the trading name in `name`.
+- **`PATCH /v1/supplier/profile`** body
+  `{ name?, description?, phone?, email?, city?, country?, address?, lat?, lng?,
+     isOpen?, hours?, logo?, cover?, profile? }` → `Supplier`.
+  Needs `supplier.profile.manage`. **This is the edit pencil.**
+  - The business is resolved **from your token**. There is deliberately no
+    route that names which supplier to edit.
+  - `null` clears, an absent key leaves alone — same rule as `PUT /v1/me`.
+  - `logo` and `cover` are `{ bucket: "supplier-media", path }`. Upload through
+    **`POST /v1/media/uploads`** to `supplier-media` first; a path outside your
+    own upload namespace is **400**.
+  - `lat`/`lng` move together, and both `null` drops the pin.
+  - `hours` is per weekday: `{ "mon": [{"from":"09:00","to":"12:30"},
+    {"from":"14:00","to":"18:00"}], "fri": [] }`. A missing day is closed, a
+    day with two intervals is a shop that shuts for lunch. Overlapping or
+    inverted intervals are **400** rather than silently merged — merging would
+    hide a typo behind a shop that claims to be open all afternoon.
+  - **Not editable here**: `isVerified` (JustGo awards it), `rating` (customers
+    earn it) and `verticalKey` (it decides the catalogue and the matching
+    rules, so changing it is a re-registration).
+  - **422 `SUPPLIER_CLOSED`** once the business has been closed.
+- **`DELETE /v1/supplier/profile`** → `Supplier` with `closedAt` set.
+  **Close the business.** A soft close: the row stays because orders,
+  invoices, reservations and reviews point at it and a gapless fiscal series
+  may not reference a seller that vanished. What goes away is visibility —
+  discovery, the directory and quote fan-out all drop it, and the profile
+  becomes read-only.
+- **`PATCH /v1/supplier/{id}/verification`** body `{ verified, note? }` →
+  `Supplier`. **Requires `platform.admin`** — this is the ops route behind the
+  blue check, and the only one that touches it. A badge the subject can award
+  itself tells a reader nothing. Withdrawable with `{"verified": false}`.
+  `note` is internal and comes back on this response only.
+
+`isOpen` vs `closedAt`: the first means *open right now* — a Sunday, a holiday
+— and the second means the business is gone. Collapsing them would make an
+August closure indistinguishable from a bankruptcy.
+
+#### Branches
+
+`suppliers.branches` and `is_multi_branch` have existed since the first
+schema, and `POST /v1/auth/session` has always accepted a `branchId` — for a
+branch nothing could create. These are the missing half. All need
+`supplier.profile.manage`, and all resolve the business from your token, so a
+branch of another supplier is **404**, never 403.
+
+- **`GET /v1/supplier/branches?includeClosed=`** → `{ items: Branch[] }`,
+  ordered by creation so a picker does not reshuffle between reads.
+- **`POST /v1/supplier/branches`** body
+  `{ name, address?, city?, country?, phone?, lat?, lng?, hours?, isOpen? }`
+  → **201** `Branch`.
+- **`PATCH /v1/supplier/branches/{id}`** → `Branch`. Same null-clears-it rule.
+- **`DELETE /v1/supplier/branches/{id}`** → `Branch` with `closedAt` set. Soft,
+  because a session token issued earlier can already carry this branch id and
+  products reference it.
+
+**`isMultiBranch` is derived now**, from the open branch count, in the same
+transaction that changes it. It used to be a flag the supplier set about
+itself that nothing kept true; do not send it and do not cache it.
+
+### Reviews & ratings — Phase 4
+
+`Supplier.rating` has been rendered by the app since the first release and
+written by nothing. This is where the number comes from.
+
+**Who may review: somebody the business actually served.** A review is only
+accepted once an order or a reservation with that supplier has reached
+`completed`. An open review box is a review box full of competitors, and this
+is the only defence that survives contact with a real market. Every review
+therefore carries a `source` of `order` or `reservation`, which is safe to
+render as a verified-purchase mark.
+
+- **`GET /v1/suppliers/{id}/reviews?limit=&cursor=`** → `ReviewPage`.
+  **Public — no token needed.** Newest first, keyset-paginated. `summary`
+  carries the whole business's average and count, not this page's, so a
+  profile header renders from this one call.
+- **`GET /v1/suppliers/{id}/reviews/me`** → `{ review, mayReview }`.
+  Both answers at once, because the app needs both to decide between a write
+  button, an edit button and nothing.
+- **`POST /v1/suppliers/{id}/reviews`** body `{ rating, body? }` → **201**
+  `Review`. Needs `review.write`.
+  - `rating` is a whole number, 1–5. Half stars are rejected: two scales would
+    make the average depend on which app the reviewer used.
+  - **422 `NO_COMPLETED_DEALING`** without a completed order or reservation.
+  - **422 `ALREADY_REVIEWED`** — one live review per person per business. Edit
+    the existing one instead; the response names its id.
+  - A star with no words is a valid review.
+- **`PATCH /v1/reviews/{id}`** body `{ rating?, body? }` → `Review`. Yours
+  only, **404** otherwise.
+- **`DELETE /v1/reviews/{id}`** → `Review` with status `removed`. Retract your
+  own. The average drops by exactly what it contributed and you are free to
+  write a new one — which is the point when a shop has put something right.
+- **`POST /v1/reviews/{id}/takedown`** body `{ reason }` → `Review`. Any
+  review, requires `platform.admin`.
+- **`PUT /v1/reviews/{id}/reply`** body `{ body }` → `Review` with `reply` set.
+  Needs `supplier.profile.manage`, and only for reviews **of your own
+  business** (403 otherwise). **PUT, not POST**: there is one answer and a
+  second call replaces it, so a retry cannot turn a review page into a thread.
+
+`Review`:
+```json
+{ "id":"uuid","supplierId":"uuid","authorAccountId":"uuid",
+  "rating":5,"body":"Piece trouvee en une heure.",
+  "status":"published","source":"order",
+  "reply":{"reviewId":"uuid","supplierId":"uuid","authorAccountId":"uuid",
+           "body":"Merci !","createdAt":"…"},
+  "createdAt":"…","updatedAt":"…" }
+```
+
+`ReviewPage`:
+```json
+{ "items":[/* Review */], "nextCursor":null,
+  "summary":{ "rating":4.6, "ratingCount":42 } }
+```
+
+The average and the count move **in the same transaction as the review**, so
+the number above a list can never disagree with the list beneath it. Use the
+`summary` the API returns rather than averaging the page you were given.
 
 ### Supplier · Inbox (requires `supplier_id` in the token)
 - **`GET /v1/supplier/requests?limit=`** → `{ items: Quote[] }` (your quote stubs).
@@ -766,7 +920,7 @@ business they pressed it on behalf of. Render the business badge from the
 second and keep the first for accountability. A client posting about their own
 car has no supplier; a *fournisseur* staff member posting a promotion has both.
 
-- **`GET /v1/feed?limit=&cursor=&author=&supplier=`** →
+- **`GET /v1/feed?limit=&cursor=&author=&supplier=&kind=&pinnedFirst=`** →
   `{ items: Post[], nextCursor }`.
   - **There is no follow graph.** The feed is every published post, newest
     first. That is a deliberate starting point, not an unfinished one: nothing
@@ -776,8 +930,10 @@ car has no supplier; a *fournisseur* staff member posting a promotion has both.
   - Keyset pagination, so posts arriving while the user scrolls do not cause
     duplicates or skipped rows the way an offset would.
 - **`POST /v1/posts`** body
-  `{ body?, media?: [{ kind, bucket, path, durationMs? }], asSupplierId? }`
+  `{ body?, kind?, media?: [{ kind, bucket, path, durationMs? }], asSupplierId? }`
   → `Post`. Needs `post.publish`.
+  - `kind` is `announcement` (default) | `promotion` | `arrival` | `job` — the
+    chip on the card. Filter the feed with `?kind=`.
   - Needs text **or** at least one media item (422 otherwise).
   - Media goes up through **`POST /v1/media/uploads`** to the **`post-media`**
     bucket first; send the returned `path` values here **in display order**.
@@ -803,6 +959,24 @@ car has no supplier; a *fournisseur* staff member posting a promotion has both.
   the order it was said.
 - **`POST /v1/posts/{id}/comments`** body `{ body, asSupplierId? }` → **201**
   `Comment`. Needs `post.interact`.
+- **`POST /v1/posts/{id}/share`** body `{ channel? }` → `Post`. Needs
+  `post.interact`. Idempotent and **not retractable**: a share describes
+  something that already happened outside the app, so `shareCount` is a reach
+  number rather than a mood. `channel` is `link` | `whatsapp` | `facebook` |
+  `other`.
+- **`PUT /v1/posts/{id}/pin`** / **`DELETE /v1/posts/{id}/pin`** → `Post`.
+  Needs `post.publish`, your own post only (**404** otherwise).
+  - **One pin per business and one per person.** Pinning another releases the
+    previous one in the same transaction, so there is never a moment with two.
+    Which slot a post takes is read from the post: one written on behalf of a
+    business takes that business's, a personal one takes its author's.
+  - Read a timeline with its pin at the front using
+    **`GET /v1/feed?supplier=…&pinnedFirst=true`** (or `author=`). It is opt-in
+    because on the global feed "pinned first" would put every business's pin
+    ahead of everything written today — an advertising board, not a feed. The
+    pin appears on the **first page only**, and that page carries one item
+    more than `limit` when a pin exists — dropping a real post to make room
+    for it would be worse. Keyset paging over the rest is unaffected.
 
 `Post`:
 ```json
@@ -810,8 +984,9 @@ car has no supplier; a *fournisseur* staff member posting a promotion has both.
   "body":"Nouvelle arrivée : plaquettes Bosch",
   "media":[{"id":"uuid","kind":"photo","bucket":"post-media",
             "path":"<accountId>/1739357000_1.jpg","durationMs":null,"ordinal":0}],
-  "likeCount":12,"commentCount":3,"likedByMe":true,
-  "status":"published","createdAt":"…" }
+  "kind":"arrival",
+  "likeCount":12,"commentCount":3,"shareCount":4,"likedByMe":true,
+  "pinnedAt":null,"status":"published","createdAt":"…" }
 ```
 
 ### Documents — Phase 3

@@ -15,10 +15,12 @@ import type {
   FeedQuery,
   PostCommentDTO,
   PostDTO,
+  PostKind,
   PostMediaDTO,
   PostMediaKind,
   PostPage,
   PostStatus,
+  ShareChannel,
 } from '../contract/dto';
 
 interface PostRow {
@@ -26,8 +28,11 @@ interface PostRow {
   author_account_id: string;
   author_supplier_id: string | null;
   body: string | null;
+  kind: PostKind;
   like_count: number;
   comment_count: number;
+  share_count: number;
+  pinned_at: Date | null;
   status: PostStatus;
   created_at: Date;
   liked_by_me: boolean;
@@ -52,8 +57,12 @@ interface CommentRow {
   created_at: Date;
 }
 
-const POST_COLS = `p.id, p.author_account_id, p.author_supplier_id, p.body,
-  p.like_count, p.comment_count, p.status, p.created_at`;
+const POST_COLS = `p.id, p.author_account_id, p.author_supplier_id, p.body, p.kind,
+  p.like_count, p.comment_count, p.share_count, p.pinned_at, p.status, p.created_at`;
+
+/** The same list without the `p.` alias, for `insert … returning`. */
+const POST_RETURNING = `id, author_account_id, author_supplier_id, body, kind,
+  like_count, comment_count, share_count, pinned_at, status, created_at`;
 
 const COMMENT_COLS = `id, post_id, author_account_id, author_supplier_id, body, created_at`;
 
@@ -74,10 +83,13 @@ function toPost(r: PostRow, media: PostMediaDTO[]): PostDTO {
     authorAccountId: asId<AccountId>(r.author_account_id),
     authorSupplierId: r.author_supplier_id ? asId<SupplierId>(r.author_supplier_id) : null,
     body: r.body,
+    kind: r.kind,
     media,
     likeCount: Number(r.like_count),
     commentCount: Number(r.comment_count),
+    shareCount: Number(r.share_count ?? 0),
     likedByMe: r.liked_by_me,
+    pinnedAt: r.pinned_at ? r.pinned_at.toISOString() : null,
     status: r.status,
     createdAt: r.created_at.toISOString(),
   };
@@ -170,11 +182,15 @@ export class PgSocialRepository {
 
     return this.tx(async (client) => {
       const inserted = await client.query<PostRow>(
-        `insert into social.posts (author_account_id, author_supplier_id, body)
-         values ($1, $2, $3)
-         returning id, author_account_id, author_supplier_id, body,
-                   like_count, comment_count, status, created_at`,
-        [callerAccountId, input.asSupplierId ?? null, body.length > 0 ? body : null],
+        `insert into social.posts (author_account_id, author_supplier_id, body, kind)
+         values ($1, $2, $3, coalesce($4, 'announcement'))
+         returning ${POST_RETURNING}`,
+        [
+          callerAccountId,
+          input.asSupplierId ?? null,
+          body.length > 0 ? body : null,
+          input.kind ?? null,
+        ],
       );
       const row = inserted.rows[0];
 
@@ -220,6 +236,30 @@ export class PgSocialRepository {
       params.push(query.authorSupplierId);
       conditions.push(`p.author_supplier_id = $${params.length}`);
     }
+    if (query.kind) {
+      params.push(query.kind);
+      conditions.push(`p.kind = $${params.length}`);
+    }
+
+    /*
+      PINNED FIRST, WITHOUT BREAKING THE CURSOR.
+
+      Ordering by `pinned_at desc nulls last` would be the obvious way and is
+      the wrong one: the keyset is on (created_at, id), and an ORDER BY that
+      no longer agrees with it makes every page after the first skip or
+      repeat rows. So the pinned post is fetched on its own, excluded from
+      the paged query entirely, and put at the front of page one. Every page
+      then stays a clean keyset over the rest.
+    */
+    const pinned =
+      query.pinnedFirst && (query.authorSupplierId || query.authorAccountId)
+        ? await this.pinnedFor(callerAccountId, query)
+        : null;
+    if (pinned) {
+      params.push(pinned.id);
+      conditions.push(`p.id <> $${params.length}`);
+    }
+
     const cursor = query.cursor ? decodeCursor(query.cursor) : null;
     if (cursor) {
       params.push(cursor.at, cursor.id);
@@ -245,11 +285,51 @@ export class PgSocialRepository {
     const rows = res.rows.slice(0, limit);
     const media = await this.mediaFor(this.pool, rows.map((r) => r.id));
     const last = rows[rows.length - 1];
+    const items = rows.map((r) => toPost(r, media.get(r.id) ?? []));
     return {
-      items: rows.map((r) => toPost(r, media.get(r.id) ?? [])),
+      // Only on the first page: a pin repeated on every page would be an
+      // advertisement, not a pin. Page one therefore carries one item MORE
+      // than `limit` when a pin exists — `limit` is a page size for the
+      // timeline, and silently dropping a real post to make room for the pin
+      // would be worse than a page of 21.
+      items: pinned && !cursor ? [pinned, ...items] : items,
       nextCursor:
         res.rows.length > limit && last ? encodeCursor(last.created_at, last.id) : null,
     };
+  }
+
+  /** The one pinned post of a timeline, if it has one. */
+  private async pinnedFor(callerAccountId: AccountId, query: FeedQuery): Promise<PostDTO | null> {
+    const params: unknown[] = [callerAccountId];
+    const conditions = [`p.status = 'published'`, `p.pinned_at is not null`];
+    if (query.authorSupplierId) {
+      params.push(query.authorSupplierId);
+      conditions.push(`p.author_supplier_id = $${params.length}`);
+    } else if (query.authorAccountId) {
+      params.push(query.authorAccountId);
+      conditions.push(`p.author_account_id = $${params.length}`);
+      conditions.push(`p.author_supplier_id is null`);
+    }
+    if (query.kind) {
+      params.push(query.kind);
+      conditions.push(`p.kind = $${params.length}`);
+    }
+    const res = await this.pool.query<PostRow>(
+      `select ${POST_COLS},
+              exists (
+                select 1 from social.post_likes l
+                 where l.post_id = p.id and l.account_id = $1
+              ) as liked_by_me
+         from social.posts p
+        where ${conditions.join(' and ')}
+        order by p.pinned_at desc
+        limit 1`,
+      params,
+    );
+    const row = res.rows[0];
+    if (!row) return null;
+    const media = await this.mediaFor(this.pool, [row.id]);
+    return toPost(row, media.get(row.id) ?? []);
   }
 
   async getPost(callerAccountId: AccountId, postId: Uuid): Promise<PostDTO | null> {
@@ -293,10 +373,10 @@ export class PgSocialRepository {
     }
     const res = await this.pool.query<PostRow>(
       `update social.posts
-          set status = 'removed', removed_at = now(), removed_reason = $2, updated_at = now()
+          set status = 'removed', removed_at = now(), removed_reason = $2,
+              pinned_at = null, updated_at = now()
         where id = $1 and status = 'published'${guard}
-        returning id, author_account_id, author_supplier_id, body,
-                  like_count, comment_count, status, created_at`,
+        returning ${POST_RETURNING}`,
       params,
     );
     const row = res.rows[0];
@@ -363,6 +443,96 @@ export class PgSocialRepository {
             set like_count = greatest(like_count - 1, 0), updated_at = now()
           where id = $1`,
         [postId],
+      );
+    });
+
+    const post = await this.getPost(callerAccountId, postId);
+    if (!post) throw new NotFoundError('Post', postId);
+    return post;
+  }
+
+  /**
+   * Share, idempotently and permanently.
+   *
+   * One row per (post, account), so the counter cannot be inflated by
+   * calling this in a loop — which a bare counter endpoint invites, and
+   * which would leave no way to recover the true number. There is no
+   * un-share: a share describes something that already happened outside the
+   * product, so there is nothing to take back.
+   */
+  async share(
+    callerAccountId: AccountId,
+    postId: Uuid,
+    channel?: ShareChannel,
+  ): Promise<PostDTO> {
+    await this.tx(async (client) => {
+      const ins = await client.query(
+        `insert into social.post_shares (post_id, account_id, channel)
+         values ($1, $2, $3)
+         on conflict (post_id, account_id) do nothing`,
+        [postId, callerAccountId, channel ?? null],
+      );
+      if (ins.rowCount === 0) return; // already shared — nothing to count
+
+      const bumped = await client.query(
+        `update social.posts set share_count = share_count + 1, updated_at = now()
+          where id = $1 and status = 'published'`,
+        [postId],
+      );
+      if (bumped.rowCount === 0) throw new NotFoundError('Post', postId);
+    });
+
+    const post = await this.getPost(callerAccountId, postId);
+    if (!post) throw new NotFoundError('Post', postId);
+    return post;
+  }
+
+  /**
+   * Pin or unpin, in one transaction with the release of the previous pin.
+   *
+   * WHICH pin a post occupies is read from the row, not from the request: a
+   * post written on behalf of a business takes that business's single slot,
+   * a personal post takes its author's. Taking it from the caller would let
+   * a staff member drop a personal post into a company's slot.
+   *
+   * Clearing the old pin and setting the new one in the same transaction is
+   * what keeps the partial unique indexes satisfiable — two statements
+   * outside a transaction would collide with the index in between.
+   */
+  async setPinned(callerAccountId: AccountId, postId: Uuid, pinned: boolean): Promise<PostDTO> {
+    await this.tx(async (client) => {
+      const owned = await client.query<{ author_supplier_id: string | null }>(
+        `select author_supplier_id from social.posts
+          where id = $1 and author_account_id = $2 and status = 'published'
+          for update`,
+        [postId, callerAccountId],
+      );
+      const row = owned.rows[0];
+      if (!row) throw new NotFoundError('Post', postId);
+
+      if (pinned) {
+        if (row.author_supplier_id) {
+          await client.query(
+            `update social.posts set pinned_at = null, updated_at = now()
+              where author_supplier_id = $1 and pinned_at is not null and id <> $2`,
+            [row.author_supplier_id, postId],
+          );
+        } else {
+          await client.query(
+            `update social.posts set pinned_at = null, updated_at = now()
+              where author_account_id = $1 and author_supplier_id is null
+                and pinned_at is not null and id <> $2`,
+            [callerAccountId, postId],
+          );
+        }
+      }
+
+      await client.query(
+        `update social.posts
+            set pinned_at = case when $2::boolean then coalesce(pinned_at, now()) else null end,
+                updated_at = now()
+          where id = $1`,
+        [postId, pinned],
       );
     });
 

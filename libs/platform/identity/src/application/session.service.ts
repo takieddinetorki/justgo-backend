@@ -15,7 +15,7 @@ import {
 import type { SessionDTO, SessionRequestDTO, SupplierScopeDTO } from '../contract/dto';
 import { DEFAULT_ROLE_KEY } from '../contract/roles';
 import { PgIdentityRepository } from '../infra/pg-identity.repository';
-import { IDENTITY_REPOSITORY } from './identity.service';
+import { accountToDTO, IDENTITY_REPOSITORY } from './identity.service';
 
 export const SESSION_TTL_SECONDS = Symbol('SESSION_TTL_SECONDS');
 
@@ -121,17 +121,10 @@ export class SessionService {
       accessToken,
       tokenType: 'Bearer',
       expiresIn: Math.max(0, expiresAt - Math.floor(Date.now() / 1000)),
-      account: {
-        id: account.id,
-        authUserId: account.authUserId,
-        firstName: account.firstName,
-        familyName: account.familyName,
-        email: account.email,
-        phone: account.phone,
-        locale: account.locale,
-        roles: account.roles,
-        createdAt: account.createdAt.toISOString(),
-      },
+      // The shared mapper, not a hand-built copy: a session's account must be
+      // the same shape as the one GET /v1/me returns, and two literals kept
+      // in step by hand is how it stopped being.
+      account: accountToDTO(account),
       roles,
       permissions,
       supplier: supplierId ? { supplierId, branchId: chosen?.branchId ?? null } : null,

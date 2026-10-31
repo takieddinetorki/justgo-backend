@@ -20,6 +20,14 @@
  *
  * Accounts are created with throwaway credentials on each run. Point it only
  * at a development deployment.
+ *
+ * DO NOT RUN THIS AND THE UNIT SUITE AT THE SAME TIME.
+ * `bullmq-event-bus.spec.ts` subscribes on the default `domain-events`
+ * queue, and on BullMQ subscribing is what spins up a consumer — so the jest
+ * process becomes a COMPETING CONSUMER against the API under test. Jobs
+ * complete, the API's reactors never see them, and every event-driven step
+ * here fails with "still not true after 25 tries", which is
+ * indistinguishable from the real bug it is there to catch.
  */
 
 const API = (process.env.API_URL ?? 'http://127.0.0.1:3100').replace(/\/$/, '');
@@ -157,6 +165,58 @@ async function main() {
   });
   check('a bad password is refused', raw.status >= 400, `status ${raw.status}`);
 
+  section('/v1/me resolves the REAL account');
+  {
+    /*
+      THE GHOST ACCOUNT. `AuthContext.accountId` is `account_id ?? sub`, so
+      it is an identity account id for a session token and a GoTrue user id
+      for a raw one. `/v1/me` used to pass it to a helper that keys on
+      `auth_user_id` alone, which INSERTED A SECOND ACCOUNT whose
+      auth_user_id was the first one's primary key — with its own default
+      role. Every call the apps make after the exchange carries a session
+      token, so every `/v1/me` read and wrote that ghost while the caller's
+      orders, documents and reviews hung off the original.
+
+      It passed unnoticed because the ghost was consistent with itself: PUT
+      then GET agreed. Comparing against the session's own account id is
+      what catches it.
+    */
+    const me = await call('GET', '/v1/me', { token: client.token });
+    check('GET /v1/me returns the account the session is for',
+      me.data?.id === client.accountId, `${me.data?.id} vs ${client.accountId}`);
+
+    const named = await call('PUT', '/v1/me', {
+      token: client.token,
+      body: { firstName: 'Taki', city: 'Alger' },
+    });
+    check('PUT /v1/me writes that same account', named.data?.id === client.accountId,
+      `${named.data?.id} vs ${client.accountId}`);
+
+    const reread = await call('GET', '/v1/me', { token: client.token });
+    check('and the write is visible on the account the session names',
+      reread.data?.firstName === 'Taki' && reread.data?.id === client.accountId,
+      `${reread.data?.firstName} on ${reread.data?.id}`);
+
+    const cleared = await call('PUT', '/v1/me', { token: client.token, body: { city: null } });
+    check('null clears a profile field', cleared.data?.city === null, String(cleared.data?.city));
+    check('and leaves the keys it did not mention', cleared.data?.firstName === 'Taki',
+      String(cleared.data?.firstName));
+
+    const futureDob = await call('PUT', '/v1/me', {
+      token: client.token,
+      body: { dob: '2099-01-01' },
+    });
+    check('a date of birth in the future is refused', futureDob.status === 400,
+      `status ${futureDob.status}`);
+
+    const stolenAvatar = await call('PUT', '/v1/me', {
+      token: client.token,
+      body: { avatar: { bucket: 'avatars', path: 'somebody-else/face.jpg' } },
+    });
+    check('an avatar path outside your namespace is refused', stolenAvatar.status === 400,
+      `status ${stolenAvatar.status}`);
+  }
+
   section('supplier registration & fiscal identity');
   const reg = await call('POST', '/v1/supplier', {
     token: seller.token,
@@ -224,6 +284,137 @@ async function main() {
     clash.status === 409 && clash.data?.error?.code === 'FISCAL_IDENTIFIER_TAKEN',
     `status ${clash.status} code ${clash.data?.error?.code}`);
 
+  section('the supplier profile, branches & the verified badge');
+  {
+    const patched = await call('PATCH', '/v1/supplier/profile', {
+      token: seller.token,
+      body: {
+        description: 'Pieces detachees toutes marques.',
+        phone: '+213555000111',
+        address: 'Rue des Freres Bouadou, Bir Mourad Rais',
+        hours: { mon: [{ from: '09:00', to: '12:30' }, { from: '14:00', to: '18:00' }] },
+      },
+    });
+    check('profile edited', patched.data?.description === 'Pieces detachees toutes marques.',
+      `status ${patched.status}`);
+    check('opening hours stored as sent', patched.data?.hours?.mon?.length === 2,
+      JSON.stringify(patched.data?.hours ?? null));
+
+    // null clears, absent leaves alone. Without the first, a description
+    // would be permanent once written.
+    const cleared = await call('PATCH', '/v1/supplier/profile', {
+      token: seller.token,
+      body: { description: null },
+    });
+    check('null clears a field', cleared.data?.description === null,
+      JSON.stringify(cleared.data?.description));
+    check('an absent key leaves its field alone', cleared.data?.phone === '+213555000111',
+      String(cleared.data?.phone));
+
+    const badHours = await call('PATCH', '/v1/supplier/profile', {
+      token: seller.token,
+      body: { hours: { mon: [{ from: '18:00', to: '09:00' }] } },
+    });
+    check('hours that end before they start are refused', badHours.status === 400,
+      `status ${badHours.status}`);
+
+    const overlap = await call('PATCH', '/v1/supplier/profile', {
+      token: seller.token,
+      body: {
+        hours: { tue: [{ from: '09:00', to: '15:00' }, { from: '14:00', to: '18:00' }] },
+      },
+    });
+    check('overlapping intervals are refused, not merged', overlap.status === 400,
+      `status ${overlap.status}`);
+
+    const stolenLogo = await call('PATCH', '/v1/supplier/profile', {
+      token: seller.token,
+      body: { logo: { bucket: 'supplier-media', path: 'somebody-else/logo.png' } },
+    });
+    check('a logo path outside your namespace is refused', stolenLogo.status === 400,
+      `status ${stolenLogo.status}`);
+
+    const otherBucket = await call('PATCH', '/v1/supplier/profile', {
+      token: seller.token,
+      body: { logo: { bucket: 'driver-documents', path: `${seller.accountId}/x.png` } },
+    });
+    check('a logo cannot point at another bucket', otherBucket.status === 400,
+      `status ${otherBucket.status}`);
+
+    const notASupplier = await call('PATCH', '/v1/supplier/profile', {
+      token: client.token,
+      body: { name: 'Hostile Takeover' },
+    });
+    check('a client cannot edit a business they do not own', notASupplier.status >= 400,
+      `status ${notASupplier.status}`);
+
+    /*
+      THE WHOLE POINT OF THE BADGE: the subject cannot award it. There is no
+      owner-facing route that reaches the field, and the ops route is behind
+      platform.admin, which nothing in this run holds.
+    */
+    const selfVerify = await call('PATCH', `/v1/supplier/${supplierId}/verification`, {
+      token: seller.token,
+      body: { verified: true },
+    });
+    check('a supplier cannot verify itself', selfVerify.status === 403,
+      `status ${selfVerify.status}`);
+    check('the profile reports itself unverified', patched.data?.isVerified === false,
+      String(patched.data?.isVerified));
+    check('the ops note is not on an ordinary read',
+      !('verificationNote' in (patched.data ?? {})),
+      JSON.stringify(Object.keys(patched.data ?? {}).filter((k) => k.includes('verification'))));
+
+    // -- branches -----------------------------------------------------
+    const branch = await call('POST', '/v1/supplier/branches', {
+      token: seller.token,
+      body: { name: `Succursale ${STAMP}`, city: 'Oran', country: 'DZ', phone: '+213555222333' },
+    });
+    const branchId = branch.data?.id;
+    check('branch opened', branch.status === 201 && Boolean(branchId), `status ${branch.status}`);
+
+    const afterOpen = await call('GET', '/v1/supplier/profile', { token: seller.token });
+    check('isMultiBranch is derived, not declared', afterOpen.data?.isMultiBranch === true,
+      String(afterOpen.data?.isMultiBranch));
+
+    const branches = await call('GET', '/v1/supplier/branches', { token: seller.token });
+    check('branch lists back', (branches.data?.items ?? []).some((b) => b.id === branchId),
+      `${branches.data?.items?.length} items`);
+
+    if (branchId) {
+      const renamed = await call('PATCH', `/v1/supplier/branches/${branchId}`, {
+        token: seller.token,
+        body: { name: 'Succursale Oran', phone: null },
+      });
+      check('branch edited', renamed.data?.name === 'Succursale Oran', `status ${renamed.status}`);
+      check('null clears on a branch too', renamed.data?.phone === null, String(renamed.data?.phone));
+
+      const foreign = await call('PATCH', `/v1/supplier/branches/${branchId}`, {
+        token: client.token,
+        body: { name: 'Mine now' },
+      });
+      check('another account cannot touch your branch', foreign.status >= 400,
+        `status ${foreign.status}`);
+
+      const closedBranch = await call('DELETE', `/v1/supplier/branches/${branchId}`, {
+        token: seller.token,
+      });
+      check('branch closed, not deleted', Boolean(closedBranch.data?.closedAt),
+        `status ${closedBranch.status}`);
+
+      const stillThere = await call('GET', '/v1/supplier/branches?includeClosed=true', {
+        token: seller.token,
+      });
+      check('a closed branch is still addressable',
+        (stillThere.data?.items ?? []).some((b) => b.id === branchId),
+        `${stillThere.data?.items?.length} items`);
+
+      const afterClose = await call('GET', '/v1/supplier/profile', { token: seller.token });
+      check('isMultiBranch follows the branch count back down',
+        afterClose.data?.isMultiBranch === false, String(afterClose.data?.isMultiBranch));
+    }
+  }
+
   section('the core loop: request -> quote -> accept -> order');
   const request = await call('POST', '/v1/requests', {
     token: client.token,
@@ -246,6 +437,14 @@ async function main() {
   if (inbox) ok('fan-out reached the supplier', `${inbox.length} quote stub(s)`);
 
   let orderId = null;
+  /*
+    Remembered so that closing the buyer's account at the end of this run can
+    prove the facture is UNTOUCHED by it — the sha256 is over the exact
+    stored bytes, so an unchanged hash is proof the buyer's printed name is
+    still in there.
+  */
+  let factureNumber = null;
+  let factureSha = null;
   if (inbox) {
     const quoteId = inbox[0].id;
     const priced = await call('POST', `/v1/supplier/requests/${quoteId}/quote`, {
@@ -326,6 +525,8 @@ async function main() {
     });
     if (invoice) {
       ok('facture issued on completion', `${invoice.number}, ${invoice.byteSize} bytes`);
+      factureNumber = invoice.number;
+      factureSha = invoice.sha256;
       check('the facture is signed', invoice.algo === 'ed25519' && invoice.sha256?.length === 64,
         `${invoice.algo} sha256:${invoice.sha256?.slice(0, 12)}…`);
 
@@ -357,6 +558,183 @@ async function main() {
       const keys = await call('GET', '/v1/documents/keys');
       check('public signing keys are published', (keys.data?.keys ?? []).length > 0,
         `${keys.data?.keys?.length} key(s)`);
+    }
+  }
+
+  section('reviews & the rating they produce');
+  if (supplierId) {
+    // The public read needs no token at all: a rating nobody can read is
+    // not a rating.
+    const publicBefore = await call('GET', `/v1/suppliers/${supplierId}/reviews`);
+    check('reviews are readable without a token', publicBefore.status === 200,
+      `status ${publicBefore.status}`);
+    check('an unrated business reports null, not zero',
+      publicBefore.data?.summary?.rating === null,
+      JSON.stringify(publicBefore.data?.summary));
+
+    /*
+      THE GATE. An outsider has never bought anything from this business, so
+      they may not review it — which is the only defence against a review box
+      full of competitors that survives contact with a real market.
+    */
+    const outsider = await makeUser('reviewer-outsider');
+    const uninvited = await call('POST', `/v1/suppliers/${supplierId}/reviews`, {
+      token: outsider.token,
+      body: { rating: 1, body: 'never bought anything here' },
+    });
+    check('a stranger cannot review a business', uninvited.status === 422,
+      `status ${uninvited.status} ${uninvited.data?.error?.code}`);
+    check('…and is told why', uninvited.data?.error?.code === 'NO_COMPLETED_DEALING',
+      String(uninvited.data?.error?.code));
+
+    const theirs = await call('GET', `/v1/suppliers/${supplierId}/reviews/me`, {
+      token: outsider.token,
+    });
+    check('the app can ask before it offers the button', theirs.data?.mayReview === false,
+      String(theirs.data?.mayReview));
+
+    /*
+      The client completed an order with this supplier earlier in this run.
+      Eligibility travels orders -> outbox -> relay -> bus -> suppliers, so
+      it is not true the instant the order completes.
+    */
+    const eligible = await eventually('the completed order grants the right to review', async () => {
+      const res = await call('GET', `/v1/suppliers/${supplierId}/reviews/me`, {
+        token: client.token,
+      });
+      return res.data?.mayReview === true ? res.data : null;
+    });
+    if (eligible) {
+      ok('the completed order grants the right to review');
+
+      const halfStar = await call('POST', `/v1/suppliers/${supplierId}/reviews`, {
+        token: client.token,
+        body: { rating: 4.5 },
+      });
+      check('half stars are refused', halfStar.status === 400, `status ${halfStar.status}`);
+
+      const written = await call('POST', `/v1/suppliers/${supplierId}/reviews`, {
+        token: client.token,
+        body: { rating: 4, body: 'Piece trouvee en une heure.' },
+      });
+      const reviewId = written.data?.id;
+      check('review written', written.status === 201 && Boolean(reviewId),
+        `status ${written.status} ${JSON.stringify(written.data).slice(0, 120)}`);
+      check('it carries the dealing it was earned by',
+        written.data?.source === 'order', String(written.data?.source));
+
+      const again = await call('POST', `/v1/suppliers/${supplierId}/reviews`, {
+        token: client.token,
+        body: { rating: 1 },
+      });
+      check('one live review per person per business', again.status === 422,
+        `status ${again.status} ${again.data?.error?.code}`);
+
+      /*
+        The average moves in the SAME TRANSACTION as the review, so this is
+        not an eventually() — if it has not moved by the time the POST
+        returns, it is broken, not slow.
+      */
+      const rated = await call('GET', '/v1/supplier/profile', { token: seller.token });
+      check('the rating moved with the review', rated.data?.rating === 4,
+        `rating ${rated.data?.rating} over ${rated.data?.ratingCount}`);
+      check('the count moved too', rated.data?.ratingCount === 1,
+        String(rated.data?.ratingCount));
+
+      if (reviewId) {
+        const edited = await call('PATCH', `/v1/reviews/${reviewId}`, {
+          token: client.token,
+          body: { rating: 5 },
+        });
+        check('a review can be edited', edited.data?.rating === 5, `status ${edited.status}`);
+
+        const reRated = await call('GET', '/v1/supplier/profile', { token: seller.token });
+        check('the average follows the edit by exactly the difference',
+          reRated.data?.rating === 5 && reRated.data?.ratingCount === 1,
+          `rating ${reRated.data?.rating} over ${reRated.data?.ratingCount}`);
+
+        const foreignEdit = await call('PATCH', `/v1/reviews/${reviewId}`, {
+          token: outsider.token,
+          body: { rating: 1 },
+        });
+        check('only the author may edit their review', foreignEdit.status >= 400,
+          `status ${foreignEdit.status}`);
+
+        const strangerReply = await call('PUT', `/v1/reviews/${reviewId}/reply`, {
+          token: outsider.token,
+          body: { body: 'speaking for a shop I do not own' },
+        });
+        check('only the reviewed business may answer', strangerReply.status >= 400,
+          `status ${strangerReply.status}`);
+
+        const replied = await call('PUT', `/v1/reviews/${reviewId}/reply`, {
+          token: seller.token,
+          body: { body: 'Merci, a bientot.' },
+        });
+        check('the business answered', replied.data?.reply?.body === 'Merci, a bientot.',
+          `status ${replied.status}`);
+
+        const replacedReply = await call('PUT', `/v1/reviews/${reviewId}/reply`, {
+          token: seller.token,
+          body: { body: 'Merci beaucoup.' },
+        });
+        check('a second answer REPLACES the first rather than threading',
+          replacedReply.data?.reply?.body === 'Merci beaucoup.',
+          String(replacedReply.data?.reply?.body));
+
+        const listed = await call('GET', `/v1/suppliers/${supplierId}/reviews`);
+        check('the public page shows the review and the reply',
+          (listed.data?.items ?? []).some((r) => r.id === reviewId && r.reply),
+          `${listed.data?.items?.length} items`);
+        check('the summary is the business average, not this page',
+          listed.data?.summary?.rating === 5 && listed.data?.summary?.ratingCount === 1,
+          JSON.stringify(listed.data?.summary));
+
+        /*
+          The directory is a READ MODEL in another schema, fed by
+          suppliers.SupplierUpdated. The rating on the supplier row moved
+          synchronously; this is the other half — that the thing a customer
+          actually browses hears about it.
+        */
+        const indexed = await eventually('the directory hears about the new rating', async () => {
+          const res = await call('GET', `/v1/discovery/directory?q=Smoke%20Parts&limit=50`);
+          const row = (res.data?.items ?? []).find((r) => r.supplierId === supplierId);
+          return row && row.rating === 5 ? row : null;
+        });
+        if (indexed) {
+          ok('the directory hears about the new rating',
+            `rating ${indexed.rating} over ${indexed.ratingCount}`);
+          check('…and carries the review count beside it', indexed.ratingCount === 1,
+            String(indexed.ratingCount));
+          check('…and the badge, unset', indexed.isVerified === false,
+            String(indexed.isVerified));
+        }
+
+        const noTakedown = await call('POST', `/v1/reviews/${reviewId}/takedown`, {
+          token: client.token,
+          body: { reason: 'because I say so' },
+        });
+        check('a takedown needs platform.admin', noTakedown.status === 403,
+          `status ${noTakedown.status}`);
+
+        const retracted = await call('DELETE', `/v1/reviews/${reviewId}`, { token: client.token });
+        check('a review can be retracted', retracted.data?.status === 'removed',
+          `status ${retracted.status}`);
+
+        const unrated = await call('GET', '/v1/supplier/profile', { token: seller.token });
+        check('retracting returns the business to never-rated, not to zero',
+          unrated.data?.rating === null && unrated.data?.ratingCount === 0,
+          `rating ${unrated.data?.rating} over ${unrated.data?.ratingCount}`);
+
+        // Retracting frees the slot — the point when a shop has put
+        // something right.
+        const rewritten = await call('POST', `/v1/suppliers/${supplierId}/reviews`, {
+          token: client.token,
+          body: { rating: 5, body: 'Probleme regle, merci.' },
+        });
+        check('retracting frees you to write a new one', rewritten.status === 201,
+          `status ${rewritten.status}`);
+      }
     }
   }
 
@@ -493,6 +871,58 @@ async function main() {
     });
     check('an upload path outside your namespace is refused', stolen.status === 403,
       `status ${stolen.status}`);
+
+    check('a post without a kind is an announcement', post.data?.kind === 'announcement',
+      String(post.data?.kind));
+
+    const promo = await call('POST', '/v1/posts', {
+      token: client.token,
+      body: { body: `Promo ${STAMP}`, kind: 'promotion' },
+    });
+    check('a post can declare its kind', promo.data?.kind === 'promotion', `status ${promo.status}`);
+
+    const filtered = await call('GET', '/v1/feed?limit=20&kind=promotion', { token: client.token });
+    check('the feed filters by kind',
+      (filtered.data?.items ?? []).every((p) => p.kind === 'promotion'),
+      `${filtered.data?.items?.length} items`);
+
+    const shared = await call('POST', `/v1/posts/${postId}/share`, {
+      token: client.token,
+      body: { channel: 'whatsapp' },
+    });
+    check('post shared', shared.data?.shareCount === 1, `count ${shared.data?.shareCount}`);
+
+    const sharedTwice = await call('POST', `/v1/posts/${postId}/share`, { token: client.token });
+    check('sharing twice stays at one', sharedTwice.data?.shareCount === 1,
+      `count ${sharedTwice.data?.shareCount}`);
+
+    const pinned = await call('PUT', `/v1/posts/${postId}/pin`, { token: client.token });
+    check('post pinned', Boolean(pinned.data?.pinnedAt), `status ${pinned.status}`);
+
+    const promoId = promo.data?.id;
+    if (promoId) {
+      const movedPin = await call('PUT', `/v1/posts/${promoId}/pin`, { token: client.token });
+      check('pinning another releases the first', Boolean(movedPin.data?.pinnedAt),
+        `status ${movedPin.status}`);
+      const wasPinned = await call('GET', `/v1/posts/${postId}`, { token: client.token });
+      check('one pin per person, enforced not merely intended',
+        wasPinned.data?.pinnedAt === null, String(wasPinned.data?.pinnedAt));
+
+      const timeline = await call(
+        'GET',
+        `/v1/feed?limit=5&author=${client.accountId}&pinnedFirst=true`,
+        { token: client.token },
+      );
+      check('pinnedFirst puts the pin at the front of a timeline',
+        timeline.data?.items?.[0]?.id === promoId,
+        `first ${timeline.data?.items?.[0]?.id}`);
+
+      const unpinned = await call('DELETE', `/v1/posts/${promoId}/pin`, { token: client.token });
+      check('unpinned', unpinned.data?.pinnedAt === null, String(unpinned.data?.pinnedAt));
+    }
+
+    const theirPin = await call('PUT', `/v1/posts/${postId}/pin`, { token: seller.token });
+    check('only the author may pin their post', theirPin.status >= 400, `status ${theirPin.status}`);
 
     const outsider2 = await makeUser('outsider2');
     const theirDelete = await call('DELETE', `/v1/posts/${postId}`, { token: outsider2.token });
@@ -908,6 +1338,137 @@ async function main() {
       });
       check('a driver cannot verify themselves', decide.status === 403,
         `status ${decide.status}`);
+    }
+  }
+
+  section('closing an account, and closing a business');
+  {
+    /*
+      A business is not personal data: it has invoices and reviews of its
+      own, and orphaning one would leave a shop in discovery that nobody can
+      answer for. So closing an account that owns one is refused rather than
+      cascading.
+    */
+    const ownsBusiness = await call('DELETE', '/v1/me', { token: seller.token });
+    check('an account that owns a business cannot be closed', ownsBusiness.status === 422,
+      `status ${ownsBusiness.status} ${ownsBusiness.data?.error?.code}`);
+    check('…and is told to close the business first',
+      ownsBusiness.data?.error?.code === 'ACCOUNT_OWNS_BUSINESS',
+      String(ownsBusiness.data?.error?.code));
+
+    const leaver = await makeUser('leaver');
+    await call('PUT', '/v1/me', {
+      token: leaver.token,
+      body: { firstName: 'Amine', familyName: 'B', phone: '+213555999888', city: 'Alger' },
+    });
+    const beforeClose = await call('GET', '/v1/me', { token: leaver.token });
+    check('profile fields beyond the original four are writable',
+      beforeClose.data?.city === 'Alger', JSON.stringify(beforeClose.data?.city));
+
+    const closed = await call('DELETE', '/v1/me', { token: leaver.token });
+    check('account closed', closed.status === 200 && Boolean(closed.data?.deletedAt),
+      `status ${closed.status}`);
+    check('the name is gone', closed.data?.firstName === null && closed.data?.familyName === null,
+      JSON.stringify([closed.data?.firstName, closed.data?.familyName]));
+    check('so are the contact details',
+      closed.data?.phone === null && closed.data?.email === null && closed.data?.city === null,
+      JSON.stringify([closed.data?.phone, closed.data?.email, closed.data?.city]));
+    check('every role was dropped', (closed.data?.roles ?? ['x']).length === 0,
+      JSON.stringify(closed.data?.roles));
+
+    const again = await call('DELETE', '/v1/me', { token: leaver.token });
+    check('closing twice is idempotent', again.status === 200, `status ${again.status}`);
+
+    /*
+      A token already issued keeps working until it expires — permissions are
+      baked in at exchange — which is why the app must drop it. What must NOT
+      work is getting a new one with anything on it.
+    */
+    const signin = await call('POST', '/auth/v1/token?grant_type=password', {
+      base: GOTRUE,
+      body: { email: leaver.email, password: leaver.password },
+    });
+    const reissued = await call('POST', '/v1/auth/session', {
+      token: signin.data?.access_token,
+      body: {},
+    });
+    check('a closed account can still sign in but reaches nothing',
+      reissued.status >= 400 || (reissued.data?.permissions ?? ['x']).length === 0,
+      `status ${reissued.status} permissions ${JSON.stringify(reissued.data?.permissions)}`);
+
+    /*
+      THE PROMISE THE API MAKES ABOUT INVOICES, checked rather than asserted
+      in prose: closing an account anonymises the person everywhere EXCEPT
+      inside documents already issued to them.
+
+      The buyer here is `client`, which nothing after this section uses. The
+      sha256 is over the exact stored bytes, so an unchanged hash after the
+      closure is proof that the name printed on the facture — and the gapless
+      number it was issued under — are still exactly what was sealed.
+    */
+    if (factureNumber) {
+      const beforeClose = await call('GET', `/v1/documents/verify/${factureNumber}`);
+      check('the facture verifies before the buyer leaves',
+        beforeClose.data?.authentic === true, `status ${beforeClose.status}`);
+
+      const buyerClosed = await call('DELETE', '/v1/me', { token: client.token });
+      check('the buyer closed their account', Boolean(buyerClosed.data?.deletedAt),
+        `status ${buyerClosed.status}`);
+
+      const afterClose = await call('GET', `/v1/documents/verify/${factureNumber}`);
+      check('the facture is still there, under the same number',
+        afterClose.data?.number === factureNumber, `status ${afterClose.status}`);
+      /*
+        `authentic` is the byte-level proof, not a flag we set: the server
+        re-reads the object out of the bucket, re-hashes it and checks the
+        signature. True after the closure means the stored bytes never
+        changed — so the buyer's name is still printed on the facture,
+        exactly as issued.
+      */
+      check('its bytes are untouched, so the buyer name is still printed on it',
+        afterClose.data?.authentic === true,
+        `authentic ${afterClose.data?.authentic} (sha at issue ${factureSha?.slice(0, 12)}…)`);
+      check('…and is still issued, not voided', afterClose.data?.status === 'issued',
+        String(afterClose.data?.status));
+    }
+
+    // Closing a business: a THROWAWAY one, so nothing above depends on it.
+    const quitter = await makeUser('quitter');
+    const biz = await call('POST', '/v1/supplier', {
+      token: quitter.token,
+      body: { verticalKey: 'part_store', name: `Smoke Quitter ${STAMP}`, city: 'Alger', country: 'DZ' },
+    });
+    if (biz.data?.id) {
+      await eventually('the throwaway business got its scope', async () => {
+        try {
+          await exchange(quitter, 'supplier');
+        } catch {
+          return null;
+        }
+        return quitter.supplierId ? quitter : null;
+      });
+      const shut = await call('DELETE', '/v1/supplier/profile', { token: quitter.token });
+      check('business closed, not deleted',
+        Boolean(shut.data?.closedAt) && shut.data?.isOpen === false,
+        `status ${shut.status}`);
+
+      const frozen = await call('PATCH', '/v1/supplier/profile', {
+        token: quitter.token,
+        body: { name: 'back from the dead' },
+      });
+      check('a closed business is read-only', frozen.status === 422,
+        `status ${frozen.status} ${frozen.data?.error?.code}`);
+
+      /*
+        The directory is a READ MODEL fed by suppliers.SupplierUpdated, so it
+        catches up through outbox -> relay -> bus rather than instantly. A
+        bare assertion here would be a flake that only fires on a slow box.
+      */
+      const dropped = await eventually('a closed business leaves the public directory', async () => {
+        const res = await call('GET', `/v1/discovery/suppliers/${biz.data.id}`);
+        return res.status === 404 ? res : null;
+      });
+      if (dropped) ok('a closed business leaves the public directory');
     }
   }
 

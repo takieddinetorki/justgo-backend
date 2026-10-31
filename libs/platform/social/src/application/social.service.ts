@@ -14,6 +14,7 @@ import type {
   PostCommentDTO,
   PostDTO,
   PostPage,
+  ShareChannel,
 } from '../contract/dto';
 import { PgSocialRepository } from '../infra/pg-social.repository';
 
@@ -114,6 +115,25 @@ export class SocialService implements SocialPort {
 
   async unlike(caller: AccountId, postId: Uuid): Promise<PostDTO> {
     return this.repo.unlike(caller, postId);
+  }
+
+  async share(caller: AccountId, postId: Uuid, channel?: ShareChannel): Promise<PostDTO> {
+    return this.repo.share(caller, postId, channel);
+  }
+
+  /*
+    Pinning is the AUTHOR's act, and which pin it occupies depends on how the
+    post was written: a post made on behalf of a business takes that
+    business's single pin, a personal one takes the author's. The repository
+    reads that from the row rather than taking it from the request, so a
+    staff member cannot pin a personal post into a company's slot.
+  */
+  async pin(caller: AccountId, postId: Uuid): Promise<PostDTO> {
+    return this.repo.setPinned(caller, postId, true);
+  }
+
+  async unpin(caller: AccountId, postId: Uuid): Promise<PostDTO> {
+    return this.repo.setPinned(caller, postId, false);
   }
 
   async comment(

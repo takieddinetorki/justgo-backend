@@ -20,6 +20,7 @@
     "@justgo/events": "workspace:*",
     "@justgo/kernel": "workspace:*",
     "@nestjs/common": "^11.0.0",
+    "@nestjs/throttler": "^6.4.0",
     "pg": "^8.16.3",
     "tslib": "^2.3.0",
     "zod": "^4.1.13"

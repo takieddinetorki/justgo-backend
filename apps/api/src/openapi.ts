@@ -73,10 +73,26 @@ function schemas(): Record<string, unknown> {
         authUserId: { type: 'string', format: 'uuid' },
         firstName: { type: 'string', nullable: true },
         familyName: { type: 'string', nullable: true },
-        email: { type: 'string', nullable: true },
+        email: {
+          type: 'string',
+          nullable: true,
+          description:
+            'CONTACT email, not the sign-in identity. GoTrue owns the credential; changing this does not change what you log in with.',
+        },
         phone: { type: 'string', nullable: true },
+        dob: { type: 'string', format: 'date', nullable: true },
+        city: { type: 'string', nullable: true },
+        country: { type: 'string', nullable: true },
+        avatar: { ...ref('MediaRef'), nullable: true },
         locale: { type: 'string', enum: ['en', 'es', 'fr'] },
         roles: { type: 'array', items: { type: 'string' } },
+        deletedAt: {
+          type: 'string',
+          format: 'date-time',
+          nullable: true,
+          description:
+            'Set once the account has been closed. The row survives because other people records reference it, but the person is anonymised and holds no role.',
+        },
         createdAt: { type: 'string', format: 'date-time' },
       },
     },
@@ -203,7 +219,140 @@ function schemas(): Record<string, unknown> {
         nis: { type: 'string', nullable: true, description: 'Numero d identification statistique.' },
         rc: { type: 'string', nullable: true, description: 'Registre de commerce.' },
         taxArticle: { type: 'string', nullable: true, description: 'Article d imposition.' },
+        description: { type: 'string', nullable: true },
+        phone: { type: 'string', nullable: true },
+        email: { type: 'string', nullable: true },
+        logo: { ...ref('MediaRef'), nullable: true },
+        cover: { ...ref('MediaRef'), nullable: true },
+        hours: { ...ref('OpeningHours'), nullable: true },
+        rating: {
+          type: 'number',
+          nullable: true,
+          example: 4.6,
+          description: 'Average of published reviews, one decimal. Null until the first one.',
+        },
+        ratingCount: {
+          type: 'integer',
+          example: 42,
+          description:
+            'How many reviews that average is over. Show it: 5.0 from one person is not 5.0 from four hundred.',
+        },
+        isVerified: {
+          type: 'boolean',
+          description:
+            'The badge. Awarded by JustGo through PATCH /v1/supplier/{id}/verification and by nothing else - a business cannot set it on itself.',
+        },
+        verifiedAt: { type: 'string', format: 'date-time', nullable: true },
+        verificationNote: {
+          type: 'string',
+          nullable: true,
+          description: 'Ops only. Returned on the verification decision, never on any other read.',
+        },
+        closedAt: {
+          type: 'string',
+          format: 'date-time',
+          nullable: true,
+          description:
+            'Set once the business has closed for good. Distinct from isOpen, which only means "open right now".',
+        },
         createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    MediaRef: {
+      type: 'object',
+      description:
+        'An object in a private bucket. Upload through POST /v1/media/uploads, send the returned path back, and read it later as a short-lived signed URL. Never a URL on its own.',
+      properties: {
+        bucket: { type: 'string', example: 'supplier-media' },
+        path: { type: 'string', example: '8f1c.../1730300000_logo.png' },
+      },
+    },
+    OpeningHours: {
+      type: 'object',
+      description:
+        'Per weekday, zero or more intervals, in the business own local time. A missing day is closed. Two intervals is a shop that shuts for lunch - which is why this is not seven pairs of fields.',
+      additionalProperties: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            from: { type: 'string', example: '09:00' },
+            to: { type: 'string', example: '12:30' },
+          },
+        },
+      },
+      example: {
+        mon: [
+          { from: '09:00', to: '12:30' },
+          { from: '14:00', to: '18:00' },
+        ],
+        fri: [],
+      },
+    },
+    Branch: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        supplierId: { type: 'string', format: 'uuid' },
+        name: { type: 'string', example: 'Succursale Bab Ezzouar' },
+        address: { type: 'string', nullable: true },
+        city: { type: 'string', nullable: true },
+        country: { type: 'string', nullable: true },
+        phone: { type: 'string', nullable: true },
+        isOpen: { type: 'boolean' },
+        hours: { ...ref('OpeningHours'), nullable: true },
+        lat: { type: 'number', nullable: true },
+        lng: { type: 'number', nullable: true },
+        closedAt: { type: 'string', format: 'date-time', nullable: true },
+        createdAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    Review: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        supplierId: { type: 'string', format: 'uuid' },
+        authorAccountId: { type: 'string', format: 'uuid' },
+        rating: { type: 'integer', minimum: 1, maximum: 5, example: 5 },
+        body: { type: 'string', nullable: true },
+        status: { type: 'string', enum: ['published', 'removed'] },
+        source: {
+          type: 'string',
+          enum: ['order', 'reservation'],
+          description:
+            'Which completed dealing earned the right to write this. Every review on the platform has one, so it is safe to render as a verified-purchase mark.',
+        },
+        reply: {
+          type: 'object',
+          nullable: true,
+          description: 'The business single answer, if it has given one.',
+          properties: {
+            reviewId: { type: 'string', format: 'uuid' },
+            supplierId: { type: 'string', format: 'uuid' },
+            authorAccountId: { type: 'string', format: 'uuid' },
+            body: { type: 'string' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        createdAt: { type: 'string', format: 'date-time' },
+        updatedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    ReviewPage: {
+      type: 'object',
+      properties: {
+        items: { type: 'array', items: ref('Review') },
+        nextCursor: { type: 'string', nullable: true },
+        summary: {
+          type: 'object',
+          description:
+            'The whole business average, not this page - so one call renders the header.',
+          properties: {
+            rating: { type: 'number', nullable: true, example: 4.6 },
+            ratingCount: { type: 'integer', example: 42 },
+          },
+        },
       },
     },
     Notification: {
@@ -456,6 +605,8 @@ function schemas(): Record<string, unknown> {
         city: { type: 'string', nullable: true, example: 'Alger' },
         country: { type: 'string', nullable: true, example: 'DZ' },
         rating: { type: 'number', nullable: true, example: 4.6 },
+        ratingCount: { type: 'integer', example: 42 },
+        isVerified: { type: 'boolean', description: 'The badge. Awarded by JustGo.' },
         distanceM: {
           type: 'integer',
           nullable: true,
@@ -706,12 +857,26 @@ function schemas(): Record<string, unknown> {
             'The business they pressed it on behalf of, if any. Render the business badge from this and keep the account for accountability.',
         },
         body: { type: 'string', nullable: true },
+        kind: {
+          type: 'string',
+          enum: ['announcement', 'promotion', 'arrival', 'job'],
+          description:
+            'The chip on the card. Defaults to announcement, which is what every post was before kinds existed.',
+        },
         media: { type: 'array', items: ref('PostMedia') },
         likeCount: { type: 'integer' },
         commentCount: { type: 'integer' },
+        shareCount: { type: 'integer' },
         likedByMe: {
           type: 'boolean',
           description: 'Per-caller — drives the filled heart without a second request.',
+        },
+        pinnedAt: {
+          type: 'string',
+          format: 'date-time',
+          nullable: true,
+          description:
+            'Set while this post is pinned to the top of its author page. One per business, one per person.',
         },
         status: { type: 'string', enum: ['published', 'removed'] },
         createdAt: { type: 'string', format: 'date-time' },
@@ -2444,6 +2609,376 @@ function enrich(doc: OpenAPIObject): void {
     responses: { ...ok(ref('AssistanceRequest')), ...errors() },
   });
 
+  // -- Supplier - profile, branches, verification -----------------------
+  set('/v1/supplier/profile', 'patch', {
+    tags: ['Supplier · Business'],
+    summary: 'Edit the business profile',
+    description: [
+      'The edit pencil. The business is resolved FROM YOUR TOKEN — there is',
+      'deliberately no route that names which supplier to edit, so a supplier',
+      'id is not something a caller can supply here.',
+      '',
+      '`null` clears a field, an absent key leaves it alone. The two are',
+      'different answers: without the first, a description would be permanent',
+      'once written.',
+      '',
+      'Images are `{bucket, path}`, never URLs. Upload through',
+      '`POST /v1/media/uploads` to the `supplier-media` bucket and send the',
+      'path back; the object must be in your own upload namespace.',
+      '',
+      '`lat` and `lng` move together or not at all, and both null drops the pin.',
+      '',
+      'NOT editable here, on purpose: `isVerified` (awarded by JustGo),',
+      '`rating` (earned from customers) and `verticalKey` (it decides the',
+      'catalogue and the matching rules, so changing it is a re-registration).',
+      '',
+      '422 `SUPPLIER_CLOSED` once the business has been closed.',
+    ].join('\n'),
+    requestBody: body(
+      {
+        type: 'object',
+        properties: {
+          name: { type: 'string', maxLength: 200 },
+          description: { type: 'string', maxLength: 5000, nullable: true },
+          phone: { type: 'string', maxLength: 32, nullable: true },
+          email: { type: 'string', maxLength: 200, nullable: true },
+          city: { type: 'string', maxLength: 120, nullable: true },
+          country: { type: 'string', minLength: 2, maxLength: 2, nullable: true },
+          address: { type: 'string', maxLength: 300, nullable: true },
+          lat: { type: 'number', nullable: true },
+          lng: { type: 'number', nullable: true },
+          isOpen: { type: 'boolean', description: 'Open right now. Closing for good is DELETE.' },
+          hours: { ...ref('OpeningHours'), nullable: true },
+          logo: { ...ref('MediaRef'), nullable: true },
+          cover: { ...ref('MediaRef'), nullable: true },
+          profile: { type: 'object', additionalProperties: true },
+        },
+      },
+      {
+        description: 'Pieces detachees toutes marques, livraison Alger.',
+        phone: '+213 555 00 11 22',
+        hours: { mon: [{ from: '09:00', to: '17:00' }] },
+        logo: { bucket: 'supplier-media', path: '8f1c.../1730300000_logo.png' },
+      },
+    ),
+    responses: { ...ok(ref('Supplier')), ...errors() },
+  });
+  set('/v1/supplier/profile', 'delete', {
+    tags: ['Supplier · Business'],
+    summary: 'Close the business',
+    description: [
+      'A SOFT CLOSE. The row stays, because orders, invoices, reservations and',
+      'reviews all point at it and a gapless fiscal series may not reference a',
+      'seller that no longer exists. What goes away is visibility: a closed',
+      'business leaves discovery, the directory and quote fan-out, and can no',
+      'longer be edited.',
+      '',
+      'Irreversible from the app. Re-opening is an ops decision.',
+    ].join('\n'),
+    responses: { ...ok(ref('Supplier')), ...errors() },
+  });
+  set('/v1/supplier/{id}/verification', 'patch', {
+    tags: ['Supplier · Business'],
+    summary: 'Award or withdraw the verified badge (ops)',
+    description: [
+      'Requires `platform.admin`. This is the ONLY route that touches the',
+      'badge, and it names the supplier explicitly — unlike every other write',
+      'under `/v1/supplier`, which resolves the business from the caller.',
+      '',
+      'A badge the subject can award itself tells a reader nothing, which is',
+      'why no owner-facing route can reach this field.',
+      '',
+      'Withdrawable with `{"verified": false}`: a business that lost its',
+      'registration must not keep the mark that says we checked it.',
+      '',
+      '`note` is an internal record of what was checked. It comes back on',
+      'this response and on no other read.',
+    ].join('\n'),
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['verified'],
+        properties: {
+          verified: { type: 'boolean' },
+          note: { type: 'string', maxLength: 1000 },
+        },
+      },
+      { verified: true, note: 'RC + NIF seen 2026-10-30' },
+    ),
+    responses: { ...ok(ref('Supplier')), ...errors() },
+  });
+
+  set('/v1/supplier/branches', 'get', {
+    tags: ['Supplier · Business'],
+    summary: 'Branches',
+    description:
+      'Closed branches are excluded unless `includeClosed=true`. Ordered by creation, which gives a picker that does not reshuffle between reads.',
+    responses: { ...ok(listOf('Branch')), ...errors() },
+  });
+  set('/v1/supplier/branches', 'post', {
+    tags: ['Supplier · Business'],
+    summary: 'Open a branch',
+    description:
+      'The first branch flips `isMultiBranch` on the supplier. That flag is DERIVED from the branch count now, not declared at registration — two sources for one fact is how they came to disagree.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string', maxLength: 200 },
+          address: { type: 'string', maxLength: 300 },
+          city: { type: 'string', maxLength: 120 },
+          country: { type: 'string', minLength: 2, maxLength: 2 },
+          phone: { type: 'string', maxLength: 32 },
+          lat: { type: 'number' },
+          lng: { type: 'number' },
+          hours: ref('OpeningHours'),
+          isOpen: { type: 'boolean' },
+        },
+      },
+      { name: 'Succursale Bab Ezzouar', city: 'Alger', country: 'DZ' },
+    ),
+    responses: {
+      '201': { description: 'Created', content: { 'application/json': { schema: ref('Branch') } } },
+      ...errors(),
+    },
+  });
+  set('/v1/supplier/branches/{id}', 'patch', {
+    tags: ['Supplier · Business'],
+    summary: 'Edit a branch',
+    description:
+      'Same null-clears-it rule as the supplier profile. A branch of another business is a 404 rather than a 403 — a 403 would confirm the id is real.',
+    requestBody: body({
+      type: 'object',
+      properties: {
+        name: { type: 'string', maxLength: 200 },
+        address: { type: 'string', maxLength: 300, nullable: true },
+        city: { type: 'string', maxLength: 120, nullable: true },
+        country: { type: 'string', minLength: 2, maxLength: 2, nullable: true },
+        phone: { type: 'string', maxLength: 32, nullable: true },
+        lat: { type: 'number', nullable: true },
+        lng: { type: 'number', nullable: true },
+        hours: { ...ref('OpeningHours'), nullable: true },
+        isOpen: { type: 'boolean' },
+      },
+    }),
+    responses: { ...ok(ref('Branch')), ...errors() },
+  });
+  set('/v1/supplier/branches/{id}', 'delete', {
+    tags: ['Supplier · Business'],
+    summary: 'Close a branch',
+    description:
+      'Soft, like closing a business: a session token issued earlier can already carry this branch id, and products reference it.',
+    responses: { ...ok(ref('Branch')), ...errors() },
+  });
+
+  // -- Reviews ----------------------------------------------------------
+  set('/v1/suppliers/{id}/reviews', 'get', {
+    tags: ['Reviews'],
+    summary: 'Reviews of a business',
+    description: [
+      'Public — a rating nobody can read is not a rating.',
+      '',
+      'Newest first, keyset-paginated with `cursor`. `summary` carries the',
+      'whole business average and count, not this page, so a profile header',
+      'renders from one call.',
+      '',
+      'The paths here are PLURAL because they are about a NAMED business,',
+      'unlike everything under `/v1/supplier`, which always means "the',
+      'business I am".',
+    ].join('\n'),
+    security: [],
+    responses: { ...ok(ref('ReviewPage')), ...errors() },
+  });
+  set('/v1/suppliers/{id}/reviews/me', 'get', {
+    tags: ['Reviews'],
+    summary: 'My review of this business, and whether I may write one',
+    description:
+      'Both answers in one call, because the app needs both to decide whether to draw a write button, an edit button or nothing at all.',
+    responses: {
+      '200': {
+        description: 'OK',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                review: { ...ref('Review'), nullable: true },
+                mayReview: {
+                  type: 'boolean',
+                  description: 'True once an order or a reservation with this business has completed.',
+                },
+              },
+            },
+          },
+        },
+      },
+      ...errors(),
+    },
+  });
+  set('/v1/suppliers/{id}/reviews', 'post', {
+    tags: ['Reviews'],
+    summary: 'Review a business',
+    description: [
+      'Requires `review.write`, AND a completed dealing: 422',
+      '`NO_COMPLETED_DEALING` unless an order or a reservation with this',
+      'business has reached `completed`. An open review box is a review box',
+      'full of competitors, and requiring a completed dealing is the only',
+      'defence that survives contact with a real market.',
+      '',
+      'One live review per person per business — 422 `ALREADY_REVIEWED`',
+      'otherwise. Change your mind with `PATCH /v1/reviews/{id}`.',
+      '',
+      'The average on the supplier moves in the same transaction, so the',
+      'number above the list can never disagree with the list.',
+    ].join('\n'),
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['rating'],
+        properties: {
+          rating: { type: 'integer', minimum: 1, maximum: 5 },
+          body: { type: 'string', maxLength: 2000 },
+        },
+      },
+      { rating: 5, body: 'Piece trouvee en une heure, montage impeccable.' },
+    ),
+    responses: {
+      '201': { description: 'Created', content: { 'application/json': { schema: ref('Review') } } },
+      ...errors(),
+    },
+  });
+  set('/v1/reviews/{id}', 'patch', {
+    tags: ['Reviews'],
+    summary: 'Edit your review',
+    description:
+      'Yours only — 404 otherwise. The average moves by exactly the difference, never by a re-aggregate.',
+    requestBody: body({
+      type: 'object',
+      properties: {
+        rating: { type: 'integer', minimum: 1, maximum: 5 },
+        body: { type: 'string', maxLength: 2000, nullable: true },
+      },
+    }),
+    responses: { ...ok(ref('Review')), ...errors() },
+  });
+  set('/v1/reviews/{id}', 'delete', {
+    tags: ['Reviews'],
+    summary: 'Retract your review',
+    description:
+      'The average drops by exactly what this review contributed, and you are free to write a new one — which is the point when a shop has put something right. The row is kept, so a reply or a complaint that refers to it does not go with it.',
+    responses: { ...ok(ref('Review')), ...errors() },
+  });
+  set('/v1/reviews/{id}/takedown', 'post', {
+    tags: ['Reviews'],
+    summary: 'Take a review down (ops)',
+    description:
+      'Any review, with a stated reason. Requires `platform.admin`. The reason is stored: a business that loses a one-star is entitled to a record of why it went.',
+    requestBody: body({
+      type: 'object',
+      required: ['reason'],
+      properties: { reason: { type: 'string', maxLength: 500 } },
+    }),
+    responses: { ...ok(ref('Review')), ...errors() },
+  });
+  set('/v1/reviews/{id}/reply', 'put', {
+    tags: ['Reviews'],
+    summary: 'Answer a review about your business',
+    description: [
+      'One answer per review. PUT, not POST: a second call replaces the first,',
+      'so a retried request cannot turn a review page into a thread — which is',
+      'how every bad review becomes an argument conducted in public.',
+      '',
+      'Only the business under review may answer; the supplier is resolved',
+      'from your token and compared, never taken from the body.',
+    ].join('\n'),
+    requestBody: body(
+      { type: 'object', required: ['body'], properties: { body: { type: 'string', maxLength: 2000 } } },
+      { body: 'Merci, a bientot. Pour le retard: notre fournisseur a livre en retard ce jour-la.' },
+    ),
+    responses: { ...ok(ref('Review')), ...errors() },
+  });
+
+  // -- Me ---------------------------------------------------------------
+  set('/v1/me', 'delete', {
+    tags: ['Me'],
+    summary: 'Close this account',
+    description: [
+      'ANONYMISATION, NOT DELETION, and the difference is deliberate.',
+      '',
+      'The name, email, phone, date of birth, city and avatar are blanked and',
+      'every role is dropped — so the person disappears from the feed, from',
+      'messages and from reviews, and the next sign-in reaches nothing. The',
+      'row itself stays, because orders, reservations and reclamations belong',
+      'to the other party as much as to this one: deleting it would destroy a',
+      'supplier record of sales they made.',
+      '',
+      '**Invoices and the other sealed documents keep the name they were',
+      'issued under.** They render from a snapshot taken at issue, signed over',
+      'their exact bytes, under a number in a gapless fiscal series. A tax',
+      'document is not ours to rewrite, and editing the bytes would break the',
+      'signature that proves nobody has.',
+      '',
+      '422 `ACCOUNT_OWNS_BUSINESS` while the account still acts for a',
+      'supplier — close the business first.',
+      '',
+      'Idempotent, and irreversible. A session token already issued keeps',
+      'working until it expires, because permissions are baked into it at',
+      'exchange: drop the token client-side as soon as this returns.',
+    ].join('\n'),
+    responses: { ...ok(ref('Account')), ...errors() },
+  });
+
+  // -- Social - pin and share -------------------------------------------
+  set('/v1/posts/{id}/share', 'post', {
+    tags: ['Social'],
+    summary: 'Share a post',
+    description:
+      'Idempotent and NOT retractable: a share describes something that already happened outside the app, so there is nothing to undo. One row per (post, account), which is what keeps the count a reach number rather than something a loop can inflate.',
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              channel: { type: 'string', enum: ['link', 'whatsapp', 'facebook', 'other'] },
+            },
+          },
+          example: { channel: 'whatsapp' },
+        },
+      },
+    },
+    responses: { ...ok(ref('Post')), ...errors() },
+  });
+  set('/v1/posts/{id}/pin', 'put', {
+    tags: ['Social'],
+    summary: 'Pin a post to the top of your page',
+    description: [
+      'One pin per business and one per person. Pinning another releases the',
+      'previous one in the same transaction, so there is never a moment with',
+      'two.',
+      '',
+      'WHICH pin a post occupies is read from the post: one written on behalf',
+      'of a business takes that business slot, a personal one takes its',
+      'author. Your own posts only — 404 otherwise.',
+      '',
+      'PUT because there is one pin and this replaces whatever held it, so a',
+      'retry leaves the same state.',
+      '',
+      'Pass `pinnedFirst=true` to `GET /v1/feed` with `author` or `supplier`',
+      'to read a timeline with its pin at the front. It is opt-in: on the',
+      'global feed, "pinned first" would put every business pin ahead of',
+      'everything written today, which is an advertising board, not a feed.',
+    ].join('\n'),
+    responses: { ...ok(ref('Post')), ...errors() },
+  });
+  set('/v1/posts/{id}/pin', 'delete', {
+    tags: ['Social'],
+    summary: 'Unpin a post',
+    responses: { ...ok(ref('Post')), ...errors() },
+  });
+
   set('/v1/health', 'get', {
     tags: ['Health'],
     summary: 'Liveness probe',
@@ -2471,6 +3006,7 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
     .addTag('Client · Fulfilment')
     .addTag('Supplier · Calendar')
     .addTag('Social')
+    .addTag('Reviews')
     .addTag('Reclamations')
     .addTag('Driver')
     .addTag('Messaging')

@@ -11,6 +11,253 @@ the test suite — a distinction this project has earned the hard way.
 
 ---
 
+## 2026-10-30
+
+The release that makes a profile editable. An audit of the CRUD surface found
+that a supplier could be **created and never changed** — `POST /v1/supplier`
+wrote a name, a city and a point, `PATCH /v1/supplier/fiscal` reached five
+fiscal fields, and that was the entire write surface. The edit pencil in the
+shipped supplier app had no endpoint behind it. A client profile reached four
+fields, and there was no way to close an account at all.
+
+### Added
+
+**A supplier can edit itself** — `PATCH /v1/supplier/profile`. Name,
+description, contact block, address, pin, opening hours, logo and cover.
+Images are `{bucket, path}` into the new private `supplier-media` bucket,
+never URLs, and a path outside the caller's own upload namespace is refused.
+The business is resolved from the token: there is deliberately no route that
+names which supplier to edit.
+
+`null` clears a field and an absent key leaves it alone. The fiscal patch
+coalesces, because none of its fields may ever be blanked; this one cannot,
+because a description that could never be removed once written is a bug.
+
+**Opening hours are jsonb, validated in the domain** — per weekday, zero or
+more intervals, because a shop that shuts for lunch has two and Friday may
+have none. Overlapping or inverted intervals are rejected rather than merged:
+merging would hide a typo (14:00 meant as 16:00) behind a shop that now claims
+to be open all afternoon.
+
+**`DELETE /v1/supplier/profile` closes a business** — `closed_at`, never a row
+delete. Orders, invoices, reservations and reviews all reference the id, and a
+gapless fiscal series may not point at a seller that vanished. `is_open` and
+`closed_at` stay separate: a shop shut on a Sunday is not a shop that has gone
+out of business.
+
+**The verified badge, decided by JustGo** —
+`PATCH /v1/supplier/{id}/verification` under `platform.admin`. It is the only
+route that touches the flag, it names the supplier explicitly (unlike every
+other write under `/v1/supplier`, which resolves the business from the
+caller), and no owner-facing path reaches it. A badge the subject can award
+itself tells a reader nothing. Withdrawable, because a business that lost its
+registration must not keep the mark saying we checked it. The ops note comes
+back on that response and on no other read.
+
+**Reviews, and the rating they produce.** `suppliers.rating` had been selected
+by the directory and rendered by the app since the first release, and written
+by nothing — null for every supplier in the database.
+
+| | |
+|---|---|
+| `GET /v1/suppliers/{id}/reviews` | **public**; newest first, with the business's average |
+| `GET /v1/suppliers/{id}/reviews/me` | my review, and whether I may write one |
+| `POST /v1/suppliers/{id}/reviews` | 1–5 stars, text optional |
+| `PATCH /v1/reviews/{id}` · `DELETE /v1/reviews/{id}` | edit or retract my own |
+| `POST /v1/reviews/{id}/takedown` | `platform.admin`, with a reason |
+| `PUT /v1/reviews/{id}/reply` | the business's single answer |
+
+**Only somebody the business actually served may review it.** An open review
+box is a review box full of competitors and bots, and requiring a completed
+order or reservation is the only defence that survives contact with a real
+market. That evidence lives in `orders` and `reservations`, which this module
+may not read (§17.4), so it arrives as events and is kept in `suppliers` own
+schema as a read model — which also makes "may I review?" one indexed lookup
+instead of a cross-schema join.
+
+One live review per person per business, enforced by a partial unique index
+rather than a read-then-write: a competitor with one completed order would
+otherwise post the same one star fifty times. Retracting frees the slot, which
+is the point when a shop has put something right.
+
+The average moves **in the same transaction as the review**, by a delta rather
+than a re-aggregate — `AVG()` per row would turn one directory query into N,
+and two concurrent reviews recomputing from the same old value would leave it
+permanently wrong. `rating_sum` and `rating_count` are stored because an
+average cannot be updated incrementally without them.
+
+The business gets **one** reply per review. A thread would turn every bad
+review into an argument conducted in public on the shop's own page; `PUT`
+rather than `POST` means a retry cannot create a second one.
+
+**Branches get endpoints** — `GET/POST/PATCH/DELETE /v1/supplier/branches`.
+The table has existed since the first schema and `POST /v1/auth/session` has
+always accepted a `branchId`, for a branch that nothing could create.
+`is_multi_branch` is now **derived** from the open branch count in the same
+transaction that changes it, rather than a flag a supplier set about itself
+that nothing kept true.
+
+**The client profile reaches the rest of the row** — `PUT /v1/me` gains email,
+avatar, city, country and `dob`, which had been a column since the first
+schema with no route that could write it. Same null-clears-it rule.
+
+**`DELETE /v1/me` closes an account** — see **A deletion that tells the truth**.
+
+**Posts have a kind, a pin and a share count.** The supplier app draws a chip
+on every card and pins one post to the top of a business page; neither existed
+in the schema, so the chip was hard-coded in the client and the pin did
+nothing. `announcement` (the default, and what every existing post is),
+`promotion`, `arrival`, `job`. One pin per business and one per person, with
+the previous one released in the same transaction. `POST /v1/posts/{id}/share`
+counts rows, not a bare counter a loop could inflate, and is deliberately not
+retractable — a share describes something that already happened outside the
+product.
+
+Pinned-first paging does **not** reorder the feed query. Ordering by
+`pinned_at` would disagree with the `(created_at, id)` keyset and make every
+page after the first skip or repeat rows; the pinned post is fetched
+separately, excluded from the paged query, and put at the front of page one.
+
+### A deletion that tells the truth
+
+`DELETE /v1/me` **anonymises**. The name, email, phone, date of birth, city
+and avatar are blanked and every role is dropped, so the person disappears
+from the feed, from messages and from reviews, and the next sign-in reaches
+nothing. One write does all of that, because every module stores an account id
+and reads the name from identity.
+
+The row survives. A hard delete would cascade through orders, reservations,
+reclamations and reviews — records that belong to the **other** party as much
+as to this one — and a supplier would lose the history of sales they made.
+
+**Issued documents keep the name they were issued under.** An invoice renders
+from a snapshot taken at issue, signed over its exact bytes, under a number in
+a gapless fiscal series. Erasing a name inside a sealed PDF would break the
+signature that proves nobody has edited it; reissuing it without the name
+would make it invalid as a tax document. Fiscal records outlive a deletion
+request, and the API says so rather than pretending otherwise — the app should
+say it on the confirmation screen too.
+
+Refused with 422 `ACCOUNT_OWNS_BUSINESS` while the account still acts for a
+supplier: a business is not personal data, it has invoices and reviews of its
+own, and orphaning one would leave a shop in discovery that nobody can answer
+for. The GoTrue credential is **not** removed — `auth.users` belongs to
+GoTrue, not to this module — so a sign-in still succeeds and then reaches
+nothing, which is the same outcome by a route that does not cross a schema
+boundary.
+
+### Changed
+
+- **One event keeps the discovery read model current.**
+  `suppliers.SupplierUpdated` is emitted by a profile edit, a verification
+  decision and a rating recomputation alike, and the index reactor handles it
+  with the same code as `SupplierRegistered`. Three event types would mean
+  three subscriptions and three chances to disagree about what the row says.
+- **Every optional field on that event means *unknown*, not *cleared*.** A
+  rating change has no reason to consult the vertical registry, so it carries
+  no `categoryKeys` — and without that rule, every review anybody wrote would
+  wipe the category coverage that decides which quote requests a supplier is
+  shown. The read model coalesces accordingly; `rating` is the one exception,
+  because a supplier whose last review is retracted has to go back to *never
+  rated*, which is a real null.
+- **The directory carries `isVerified` and `ratingCount`**, and takes
+  `?verified=true`. A 5.0 from one person must not render identically to a 4.9
+  from four hundred.
+- **The session's `account` object is built by the shared mapper**, not by a
+  hand-written literal beside it. Two literals kept in step by hand is how
+  they stop being in step — every field added to `AccountDTO` in this change
+  had to be remembered in a second place, and would not have been.
+- **`ReviewsService` methods are all `async`**, including the ones whose only
+  work is validation. A method that throws synchronously from an async-looking
+  signature gives its callers two failure shapes for one failure, and makes
+  `expect(...).rejects` silently inapplicable — which is how a validation rule
+  ends up asserted nowhere. Caught by the tests in this change.
+- **A closed supplier is excluded from quote fan-out.**
+
+### Fixed
+
+Both of these were found by the live smoke test, not by the unit suite — the
+first had been shipping for months.
+
+- **`/v1/me` was reading and writing a GHOST ACCOUNT.** `AuthContext.accountId`
+  is `account_id ?? sub`: an identity account id when the caller holds a
+  JustGo session token, a Supabase auth user id when they hold a raw GoTrue
+  one. All three `/v1/me` routes passed it to `ensureAccount`, which keys on
+  `auth_user_id` **alone** — so with a session token it inserted a *second*
+  account whose `auth_user_id` was the first one's primary key, gave it the
+  default role, and returned that. Every call the apps make after the
+  exchange carries a session token, so that was every `/v1/me` call: a user's
+  name and phone number went onto a row that none of their orders, documents
+  or reviews pointed at.
+
+  It passed unnoticed because the ghost was self-consistent — `PUT` then `GET`
+  agreed, so nothing looked wrong. The database on the dev box has **four**
+  such rows. `/v1/me` now goes through `currentAccount`, which resolves
+  **either** id first and self-provisions only on genuine first contact, and
+  the smoke test compares `/v1/me`'s id against the id in the session it was
+  issued.
+
+  No migration deletes the existing ghosts. They hold no orders and no
+  documents, but they are rows a person's data was once written to, and
+  deciding what to do with them is not a thing to settle inside an unrelated
+  change.
+
+- **An enum-keyed Zod record is EXHAUSTIVE in Zod 4.** `z.record(z.enum([…]))`
+  for opening hours demanded all seven weekdays and rejected `{ mon: […] }`
+  with six "expected array, received undefined" issues naming days the caller
+  never mentioned. `z.partialRecord` keeps the key validation and makes each
+  day optional.
+
+- **`pg-discovery.repository.ts` contained a literal NUL byte** (the cursor
+  separator), so git classified the file as binary and every diff of it was
+  unreviewable. Same byte, written as `\u0000`.
+
+### Migrations
+
+`0028` supplier profile · `0029` supplier verification · `0030` reviews ·
+`0031` post kinds, pins and shares · `0032` account profile and closure ·
+`0033` branches
+
+33 applied in total. One new permission: `review.write` — its own bit rather
+than part of `post.interact`, because a review changes a rating and a like
+reaches nobody, and the rating is the first thing anyone will try to game.
+Verification deliberately adds **no** permission: `platform.admin` already
+means "ops", and a second name for the same authority is a rule nobody can
+resolve the first time the two drift apart.
+
+New bucket: `supplier-media` (`pnpm buckets`).
+
+### Verified
+
+`scripts/smoke.mjs` grew from 129 checks to **194**, and the whole run is
+green against a live deployment — including the two defects above, which it
+found on its first run over this change. New ground it covers: the profile
+patch and its null-clears-it rule, opening-hours rejection, branch CRUD with
+`isMultiBranch` following the count both ways, the review eligibility gate,
+the average moving with the review and back on retraction, the discovery read
+model hearing about a rating, post kinds, pins and shares — and that **closing
+an account leaves an already-issued facture byte-for-byte intact**, checked
+through the public verify endpoint, which re-reads the object and re-hashes it
+rather than trusting the stored hash.
+
+One operational note, because it cost an hour of misdiagnosis: the unit suite
+and the smoke test **cannot run at the same time**. `bullmq-event-bus.spec.ts`
+subscribes on the default `domain-events` queue, which makes the jest process
+a competing consumer against the running API — jobs complete, reactors never
+see them, and events appear to vanish exactly as they would in a real bug.
+
+### Not done here
+
+- **No public branch list.** A business page cannot yet show its branches to a
+  customer; only the owner can read them. It wants a public route on the
+  discovery read model rather than a second public path into `suppliers`.
+- **Review abuse beyond the eligibility gate.** No rate-based detection, no
+  review of reviews. The gate plus `platform.admin` takedown is the whole of
+  it for now.
+- **Re-opening a closed business** is an ops action with no endpoint.
+
+---
+
 ## 2026-10-15
 
 ### Added

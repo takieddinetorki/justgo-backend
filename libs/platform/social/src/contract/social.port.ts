@@ -6,6 +6,7 @@ import type {
   PostCommentDTO,
   PostDTO,
   PostPage,
+  ShareChannel,
 } from './dto';
 
 /**
@@ -28,6 +29,21 @@ export interface SocialPort {
   /** Idempotent: liking twice leaves one like and one count. */
   like(callerAccountId: AccountId, postId: Uuid): Promise<PostDTO>;
   unlike(callerAccountId: AccountId, postId: Uuid): Promise<PostDTO>;
+
+  /**
+   * Idempotent, and NOT retractable. A share describes something that
+   * already happened outside the product, so there is nothing to undo —
+   * which also means the count is a reach number rather than a mood.
+   */
+  share(callerAccountId: AccountId, postId: Uuid, channel?: ShareChannel): Promise<PostDTO>;
+
+  /**
+   * Pin a post to the top of its author's page. One per business and one per
+   * person: pinning another releases the previous one in the same
+   * transaction, so there is never a moment with two.
+   */
+  pin(callerAccountId: AccountId, postId: Uuid): Promise<PostDTO>;
+  unpin(callerAccountId: AccountId, postId: Uuid): Promise<PostDTO>;
 
   comment(
     callerAccountId: AccountId,

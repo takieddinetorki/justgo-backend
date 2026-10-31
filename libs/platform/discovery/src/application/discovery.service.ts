@@ -71,11 +71,13 @@ export class DiscoveryService implements DiscoveryPort {
     name: string;
     lat: number | null;
     lng: number | null;
-    categoryKeys: string[];
+    categoryKeys?: string[] | null;
     isOpen?: boolean;
     city?: string | null;
     country?: string | null;
     rating?: number | null;
+    ratingCount?: number | null;
+    isVerified?: boolean | null;
   }): Promise<void> {
     await this.repo.upsert({ ...input, isOpen: input.isOpen ?? true });
   }

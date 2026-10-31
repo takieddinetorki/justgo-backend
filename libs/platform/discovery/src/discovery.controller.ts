@@ -24,6 +24,7 @@ const directorySchema = z.object({
   vertical: z.string().max(64).optional(),
   category: z.string().max(64).optional(),
   city: z.string().max(120).optional(),
+  verified: z.coerce.boolean().optional(),
   lat: z.coerce.number().min(-90).max(90).optional(),
   lng: z.coerce.number().min(-180).max(180).optional(),
   limit: z.coerce.number().int().positive().max(100).optional(),
