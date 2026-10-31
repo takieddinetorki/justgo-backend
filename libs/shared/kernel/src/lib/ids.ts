@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ValidationError } from './errors';
 
 /**
  * Branded UUID types. All primary keys are UUIDs (§7); brands prevent
@@ -29,7 +30,19 @@ export function isUuid(value: string): value is Uuid {
   return UUID_RE.test(value);
 }
 
+/**
+ * Narrow a string to a branded id, or REJECT it as a client mistake.
+ *
+ * It throws ValidationError, not TypeError, because of where it is
+ * actually called: every controller runs it on a path parameter, and a
+ * path parameter comes from whoever typed the URL. A TypeError is
+ * nobody's error but ours, so the exception filter — correctly — logged a
+ * stack trace and answered 500. `GET /v1/suppliers/not-a-uuid/reviews`
+ * therefore told the caller the server was broken, when the truth is
+ * that the id is not an id. 400 says that, and says it without a stack
+ * trace in the log for every bot that probes a URL.
+ */
 export function asId<T extends Uuid>(value: string): T {
-  if (!isUuid(value)) throw new TypeError(`Invalid UUID: ${value}`);
+  if (!isUuid(value)) throw new ValidationError(`Invalid id: ${value}`, { value });
   return value as T;
 }

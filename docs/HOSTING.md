@@ -104,7 +104,10 @@ Run end-to-end against the public IP, in this order:
 | Check | Result |
 |---|---|
 | `GET /v1/health` | 200 |
-| `GET /v1/discovery/suppliers` (public, no auth) | 200 |
+| `GET /v1/discovery/directory` (public, no auth) | 200 |
+| `GET /v1/discovery/suppliers?lat=&lng=` (public) | 200 |
+| `GET /v1/discovery/suppliers` with no coordinates | **400** — `/suppliers` ranks by distance, so it requires them. The browse screen wants `/directory`, where every filter is optional. |
+| `GET /v1/discovery/suppliers/not-a-uuid` | **400** — a malformed path id is the caller's error |
 | GoTrue sign-up via the gateway | 200, token issued |
 | Raw GoTrue token on `/v1/vehicles` | **403** — as designed |
 | `POST /v1/auth/session` `{}` | 201 — `client`, 13 permissions |

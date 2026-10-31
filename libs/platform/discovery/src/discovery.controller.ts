@@ -1,7 +1,7 @@
 import { Controller, Get, Inject, Param, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { Public } from '@justgo/auth';
-import { NotFoundError, ValidationError } from '@justgo/kernel';
+import { asId, NotFoundError, ValidationError, type SupplierId } from '@justgo/kernel';
 import { DISCOVERY_PORT, type DiscoveryPort } from './contract/discovery.port';
 import type { DirectoryPage, DirectorySupplierDTO, NearbySupplierDTO } from './contract/dto';
 
@@ -73,11 +73,18 @@ export class DiscoveryController {
     });
   }
 
-  /** `GET /v1/discovery/suppliers/{id}` — the public provider profile. */
+  /**
+   * `GET /v1/discovery/suppliers/{id}` — the public provider profile.
+   *
+   * `asId` before the repository, even though the port takes a plain
+   * string: this route is public, and a path that is not a UUID reached
+   * Postgres as one and came back as "invalid input syntax for type
+   * uuid" — a 500 on an unauthenticated route, for a caller error.
+   */
   @Get('suppliers/:id')
   @Public()
   async supplier(@Param('id') id: string): Promise<DirectorySupplierDTO> {
-    const found = await this.discovery.getSupplier(id);
+    const found = await this.discovery.getSupplier(asId<SupplierId>(id));
     if (!found) throw new NotFoundError('Supplier', id);
     return found;
   }

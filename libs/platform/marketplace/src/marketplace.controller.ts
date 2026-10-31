@@ -13,7 +13,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 import { CurrentAuth, Public, RequirePermissions, type AuthContext } from '@justgo/auth';
-import { ValidationError } from '@justgo/kernel';
+import { asId, ValidationError } from '@justgo/kernel';
 import { MARKETPLACE_PORT, type MarketplacePort } from './contract/marketplace.port';
 import type { BidDTO, ListingDTO } from './contract/dto';
 
@@ -114,11 +114,16 @@ export class MarketplaceController {
     return { items: await this.marketplace.browse(parsed.data) };
   }
 
-  /** The public view: no acceptance range, no bid count. */
+  /**
+   * The public view: no acceptance range, no bid count.
+   *
+   * `asId` first: public, so a path that is not a UUID used to reach
+   * Postgres and come back as a 500 for what is a caller error.
+   */
   @Public()
   @Get(':id')
   async get(@Param('id') id: string): Promise<ListingDTO> {
-    return this.marketplace.get(id);
+    return this.marketplace.get(asId(id));
   }
 
   /** The owner's view of their own listing, with the range and live bids. */

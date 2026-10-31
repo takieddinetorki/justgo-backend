@@ -11,6 +11,48 @@ the test suite — a distinction this project has earned the hard way.
 
 ---
 
+## 2026-10-31
+
+Deployed 2026-10-30's work to the dev box and probed the public surface from
+outside it, which turned up one defect in the new code and two older ones of
+the same shape.
+
+### Fixed
+
+- **A malformed id in a path answered 500 on three PUBLIC routes.** `asId`
+  threw a `TypeError`, and a `TypeError` is by definition our bug, not the
+  caller's — so the exception filter did the right thing with the wrong
+  input and returned `INTERNAL`, with a stack trace in the log, for
+  `GET /v1/suppliers/not-a-uuid/reviews`. It now throws `ValidationError`,
+  so every `:id` route in the API answers **400** instead, and the log stays
+  readable while bots walk the URL space.
+
+  Two of the three did not even reach `asId`: `GET /v1/discovery/suppliers/{id}`
+  and `GET /v1/marketplace/listings/{id}` passed the raw path string to
+  Postgres, which rejected it as `invalid input syntax for type uuid`. Both
+  now narrow the id before the query. Those two have been answering 500 since
+  long before this release; the reviews route was a day old.
+
+- **`docs/HOSTING.md` claimed `GET /v1/discovery/suppliers` returns 200 with
+  no arguments.** It returns 400, correctly: that route ranks by distance and
+  requires `lat`/`lng`. The browse screen's route, where every filter really
+  is optional, is `/v1/discovery/directory`. The table now says so, which
+  matters because that line is what an integrator tests first.
+
+### Verified
+
+Deployed and re-run on the box: 6 migrations applied, the `supplier-media`
+bucket created, both app containers recreated on the new image, and
+**194 smoke checks green against the deployment** — including the facture that
+survives its buyer closing their account. The smoke test now also asserts the
+400 on all three public id routes, so this cannot come back silently.
+
+The dev database holds **12 ghost accounts** from the `/v1/me` defect fixed in
+2026-10-30. Nothing here deletes them; the write path that produced them is
+closed.
+
+---
+
 ## 2026-10-30
 
 The release that makes a profile editable. An audit of the CRUD surface found

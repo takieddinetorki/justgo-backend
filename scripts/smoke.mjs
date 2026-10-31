@@ -152,6 +152,31 @@ async function main() {
   check('OpenAPI 3 document served', /^3\./.test(spec.data?.openapi ?? ''),
     `${Object.keys(spec.data?.paths ?? {}).length} paths`);
 
+  /*
+    Public routes that take an id in the path. A path parameter comes from
+    whoever typed the URL, so a malformed one is a 400 — it used to be a
+    500 with a stack trace in the log, on three unauthenticated routes,
+    because `asId` threw a TypeError and the filter could only read that
+    as our bug. Unauthenticated on purpose here: these are reachable by
+    anyone, which is exactly why the status has to be right.
+  */
+  for (const [label, path] of [
+    ['a public supplier profile', '/v1/discovery/suppliers/not-a-uuid'],
+    ['a public car listing', '/v1/marketplace/listings/not-a-uuid'],
+    ['a public review list', '/v1/suppliers/not-a-uuid/reviews'],
+  ]) {
+    const res = await call('GET', path);
+    check(`${label} rejects a malformed id with 400, not 500`,
+      res.status === 400 && res.data?.error?.code === 'VALIDATION_FAILED',
+      `status ${res.status} ${res.data?.error?.code ?? ''}`);
+  }
+  {
+    // Well-formed but reserved — the nil UUID has no version nibble.
+    const res = await call('GET', '/v1/suppliers/00000000-0000-0000-0000-000000000000/reviews');
+    check('and the nil UUID is a malformed id too', res.status === 400,
+      `status ${res.status}`);
+  }
+
   section('auth exchange');
   const client = await makeUser('client');
   ok('client signed up and exchanged', `${client.permissions.length} permissions`);
