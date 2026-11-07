@@ -31,7 +31,16 @@ export class SupabaseStorageHttp implements StorageHttp {
       },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`Supabase Storage ${path} -> HTTP ${res.status}`);
+    if (!res.ok) {
+      /*
+        Include the body. Storage explains a 400 there, and throwing only
+        the status cost an hour of guessing at exactly such a failure.
+      */
+      const detail = await res.text().catch(() => '');
+      throw new Error(
+        `Supabase Storage ${path} -> HTTP ${res.status}${detail ? ` ${detail.slice(0, 300)}` : ''}`,
+      );
+    }
     return (await res.json()) as T;
   }
 
@@ -125,19 +134,39 @@ export class SupabaseStorageAdapter implements MediaPort {
     expiresInSeconds?: number;
   }): Promise<Map<string, string>> {
     const out = new Map<string, string>();
-    const paths = [...new Set(input.paths)];
+    /*
+      NO SPREAD OF A SET. `[...new Set(xs)]` is the obvious way to write
+      this and it is broken in the shipped bundle: SWC's loose
+      downlevelling turns it into `[].concat(set)`, which appends the Set
+      OBJECT rather than its members. Storage then receives
+      `{"paths":[{}]}` and answers 400 — only in the webpack build, never
+      in a unit test. That is now the FIFTH defect in this codebase from
+      this one transform; `social.service.ts` carries the same warning
+      over its allow-list.
+    */
+    const paths = input.paths.filter((path, i) => input.paths.indexOf(path) === i);
     if (paths.length === 0) return out;
+    /*
+      Say what is wrong HERE rather than letting Storage answer 400 about
+      it. The failure above sent object-shaped entries and all we learned
+      was the status code; this names the problem at the boundary where it
+      can still be read.
+    */
+    const bad = paths.find((path) => typeof path !== 'string' || path.length === 0);
+    if (bad !== undefined) {
+      throw new TypeError(`createSignedDownloadUrls got a non-string path: ${JSON.stringify(bad)}`);
+    }
     const res = await this.http.post<
       { error: string | null; path: string | null; signedURL: string }[]
     >(`object/sign/${input.bucket}`, {
       expiresIn: input.expiresInSeconds ?? this.defaultTtl,
       paths,
     });
-    for (const row of res) {
+    res.forEach((row) => {
       // Storage reports a per-path failure in the row, not as an HTTP error.
-      if (row.error || !row.path || !row.signedURL) continue;
+      if (row.error || !row.path || !row.signedURL) return;
       out.set(row.path, `${this.baseUrl}/storage/v1/${row.signedURL.replace(/^\//, '')}`);
-    }
+    });
     return out;
   }
 

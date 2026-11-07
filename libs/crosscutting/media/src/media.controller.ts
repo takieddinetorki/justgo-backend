@@ -163,14 +163,20 @@ export class MediaController {
       byBucket.set(item.bucket, paths);
     }
 
+    /*
+      `.forEach` and `Array.from`, not `for..of` over a Map. SWC's loose
+      downlevelling mangles iterator-protocol code in the bundle — the
+      same transform that broke the batch signer by spreading a Set — and
+      it fails only in the built image, where it is hardest to see.
+    */
     const signed = new Map<string, string>();
-    for (const [bucket, paths] of byBucket) {
+    for (const bucket of Array.from(byBucket.keys())) {
       const urls = await this.media.createSignedDownloadUrls({
         bucket,
-        paths,
+        paths: byBucket.get(bucket) ?? [],
         expiresInSeconds: ttl,
       });
-      for (const [path, url] of urls) signed.set(`${bucket}/${path}`, url);
+      urls.forEach((url, path) => signed.set(`${bucket}/${path}`, url));
     }
 
     return {
