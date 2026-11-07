@@ -17,6 +17,15 @@ export class StubStorageAdapter implements MediaPort {
     return `http://localhost:0/download/${input.bucket}/${input.path}?token=stub`;
   }
 
+  async createSignedDownloadUrls(input: {
+    bucket: string;
+    paths: string[];
+  }): Promise<Map<string, string>> {
+    return new Map(
+      input.paths.map((path) => [path, `http://localhost:0/download/${input.bucket}/${path}?token=stub`]),
+    );
+  }
+
   /*
     An in-memory store, not a no-op. Document issuance writes bytes and
     verification reads them back; a stub that silently dropped them would

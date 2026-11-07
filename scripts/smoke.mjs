@@ -142,6 +142,50 @@ async function eventually(label, fn, { tries = 25, waitMs = 600 } = {}) {
   return null;
 }
 
+
+/*
+  The smallest real PNG: a 1x1 transparent pixel, 67 bytes. Storage is
+  asked to serve it back byte for byte, so the test needs actual image
+  bytes rather than a text file with a .png name — Storage records the
+  content type it was given, and an <img> is what has to accept it.
+*/
+const PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+/**
+ * Upload a real image the way the app does: ask for a signed PUT, then
+ * send the bytes straight to Storage. Returns the (bucket, path) ref the
+ * app would then attach to a post or a listing.
+ */
+async function uploadPixel(user, bucket, filename) {
+  const signed = await call('POST', '/v1/media/uploads', {
+    token: user.token,
+    body: { bucket, filename, contentType: 'image/png' },
+  });
+  if (!signed.data?.uploadUrl) {
+    return { ok: false, detail: `sign failed: ${signed.status} ${JSON.stringify(signed.data)}` };
+  }
+  const put = await fetch(signed.data.uploadUrl, {
+    method: 'PUT',
+    headers: { 'content-type': 'image/png' },
+    body: PIXEL_PNG,
+  });
+  return {
+    ok: put.ok,
+    detail: `upload HTTP ${put.status}`,
+    ref: { bucket, path: signed.data.path },
+  };
+}
+
+/** Fetch a URL with NO headers — exactly what an <img> tag does. */
+async function fetchAsImage(url) {
+  const res = await fetch(url);
+  const buf = Buffer.from(await res.arrayBuffer());
+  return { status: res.status, type: res.headers.get('content-type'), bytes: buf.length };
+}
+
 async function main() {
   console.log(`JustGo smoke test\n  api     ${API}\n  gotrue  ${GOTRUE}`);
 
@@ -839,10 +883,75 @@ async function main() {
     check('an outsider gets 404, not 403', peek.status === 404, `status ${peek.status}`);
   }
 
+  /*
+    IMAGES. The one thing this suite could not see before: uploads worked,
+    rows were written, and nothing in the product could display a picture,
+    because every bucket is private and no endpoint turned a stored
+    (bucket, path) into a URL. Each check below ends at the bytes.
+  */
+  section('images actually load');
+  let postPhoto = null;
+  let carPhoto = null;
+  {
+    const up = await uploadPixel(client, 'post-media', 'feed.png');
+    check('a photo uploads to the private post bucket', up.ok, up.detail);
+    postPhoto = up.ref ?? null;
+
+    const car = await uploadPixel(client, 'vehicle-photos', 'car.png');
+    check('and one to the car bucket', car.ok, car.detail);
+    carPhoto = car.ref ?? null;
+
+    if (postPhoto) {
+      const signed = await call('POST', '/v1/media/downloads', {
+        token: client.token,
+        body: { items: [postPhoto] },
+      });
+      const url = signed.data?.items?.[0]?.url;
+      check('the API hands back a URL for it', Boolean(url),
+        `status ${signed.status} ${JSON.stringify(signed.data).slice(0, 100)}`);
+
+      if (url) {
+        /*
+          No Authorization header on purpose. A signed storage URL has to
+          work from a bare <img src>, or the phone cannot render it.
+        */
+        const img = await fetchAsImage(url);
+        check('and the URL serves the IMAGE, with no auth header',
+          img.status === 200 && img.type === 'image/png' && img.bytes === PIXEL_PNG.length,
+          `HTTP ${img.status} ${img.type} ${img.bytes}B`);
+      }
+
+      const missing = await call('POST', '/v1/media/downloads', {
+        token: client.token,
+        body: { items: [{ bucket: 'post-media', path: `${client.accountId}/nope.png` }] },
+      });
+      check('a path with no object is a null url, not an error',
+        missing.status === 201 || missing.status === 200,
+        `status ${missing.status}`);
+
+      const forbidden = await call('POST', '/v1/media/downloads', {
+        token: client.token,
+        body: { items: [{ bucket: 'documents', path: 'anything.pdf' }] },
+      });
+      check('but a facture cannot be signed through the media endpoint',
+        forbidden.status === 400, `status ${forbidden.status}`);
+
+      const notMine = await call('POST', '/v1/media/downloads', {
+        token: client.token,
+        body: { items: [{ bucket: 'driver-documents', path: 'somebody-else/licence.jpg' }] },
+      });
+      check('nor somebody else identity document', notMine.status === 400,
+        `status ${notMine.status}`);
+    }
+  }
+
   section('social feed');
   const post = await call('POST', '/v1/posts', {
     token: client.token,
-    body: { body: `Post de test ${STAMP}` },
+    body: {
+      body: `Post de test ${STAMP}`,
+      ...(postPhoto ? { media: [{ kind: 'photo', ...postPhoto }] } : {}),
+    },
   });
   check('post published', post.status < 400, `status ${post.status} ${JSON.stringify(post.data).slice(0, 120)}`);
   const postId = post.data?.id;
@@ -879,6 +988,26 @@ async function main() {
     const feed = await call('GET', '/v1/feed?limit=5', { token: client.token });
     check('post appears in the feed',
       (feed.data?.items ?? []).some((p) => p.id === postId), `status ${feed.status}`);
+
+    if (postPhoto) {
+      /*
+        The blog bug, end to end: the feed used to return (bucket, path)
+        into a private bucket and nothing else, so the card had no image
+        to draw. The URL has to come back ON THE FEED — making the client
+        fetch one per photo would be a round trip per picture on screen.
+      */
+      const mine = (feed.data?.items ?? []).find((p) => p.id === postId);
+      const shot = mine?.media?.[0];
+      check('the feed carries a URL for the photo, not just a path',
+        Boolean(shot?.url) && Boolean(shot?.urlExpiresAt),
+        `url ${String(shot?.url).slice(0, 48)}…`);
+      if (shot?.url) {
+        const img = await fetchAsImage(shot.url);
+        check('and that URL renders the photo on the card',
+          img.status === 200 && img.type === 'image/png',
+          `HTTP ${img.status} ${img.type} ${img.bytes}B`);
+      }
+    }
 
     const forged = await call('POST', '/v1/posts', {
       token: client.token,
@@ -962,6 +1091,7 @@ async function main() {
     token: client.token,
     body: {
       title: `Renault Clio IV ${STAMP}`,
+      ...(carPhoto ? { photos: [carPhoto] } : {}),
       brand: 'Renault',
       model: 'Clio IV',
       year: 2018,
@@ -988,6 +1118,42 @@ async function main() {
     `${listed.status} fuel=${listed.data?.fuelType} customs=${listed.data?.isCustomsCleared}`);
   check('a listing starts closed to offers', listed.data?.acceptsOffers === false,
     `acceptsOffers ${listed.data?.acceptsOffers}`);
+
+  if (carPhoto) {
+    /*
+      The sell-a-car bug. `photoUrls` demanded an absolute URL and the app
+      had none to give, so photos were uploaded and then dropped on the
+      floor — on the dev box, objects in `vehicle-photos` and every single
+      listing stored with an empty array. A ref goes in, a URL comes out,
+      and the bytes are at the end of it.
+    */
+    check('the car photo is stored as a ref, not thrown away',
+      (listed.data?.photos ?? []).length === 1,
+      `photos ${JSON.stringify(listed.data?.photos ?? [])}`);
+    check('and comes back in photoUrls as a URL',
+      (listed.data?.photoUrls ?? []).length === 1 &&
+        String(listed.data.photoUrls[0]).startsWith('http'),
+      `${String(listed.data?.photoUrls?.[0]).slice(0, 48)}…`);
+    if (listed.data?.photoUrls?.[0]) {
+      const img = await fetchAsImage(listed.data.photoUrls[0]);
+      check('which serves the picture of the car',
+        img.status === 200 && img.type === 'image/png',
+        `HTTP ${img.status} ${img.type} ${img.bytes}B`);
+    }
+
+    // The public view of the same car — the one a buyer scrolling sees.
+    const publicView = await call('GET', `/v1/marketplace/listings/${listingId}`);
+    check('a buyer who is not signed in sees the photo too',
+      (publicView.data?.photoUrls ?? []).length === 1,
+      `status ${publicView.status} photos ${(publicView.data?.photoUrls ?? []).length}`);
+
+    const foreign = await call('POST', '/v1/marketplace/listings', {
+      token: seller.token,
+      body: { title: 'Pas ma voiture', photos: [carPhoto] },
+    });
+    check('and a photo uploaded by somebody else is refused',
+      foreign.status === 403, `status ${foreign.status}`);
+  }
 
   if (listingId) {
     const tooSoon = await call('POST', `/v1/marketplace/listings/${listingId}/bids`, {

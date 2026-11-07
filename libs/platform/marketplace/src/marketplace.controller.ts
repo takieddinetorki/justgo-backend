@@ -67,7 +67,21 @@ const createSchema = z
     mileageKm: z.number().int().nonnegative().optional(),
     amount: money.optional(),
     description: z.string().max(5000).optional(),
+    /*
+      Legacy, and kept only for a client already in the field: every
+      bucket is private, so there is no URL anyone can legitimately put
+      here. New photos go in `photos` as the (bucket, path) the upload
+      returned.
+    */
     photoUrls: z.array(z.string().url()).max(20).optional(),
+    photos: z
+      .array(
+        z
+          .object({ bucket: z.literal('vehicle-photos'), path: z.string().min(1).max(300) })
+          .strict(),
+      )
+      .max(20)
+      .optional(),
     city: z.string().max(120).optional(),
     country: z.string().length(2).optional(),
     lat: z.number().min(-90).max(90).optional(),

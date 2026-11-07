@@ -72,6 +72,13 @@ function toMedia(r: MediaRow): PostMediaDTO {
     kind: r.kind,
     bucket: r.bucket,
     path: r.path,
+    /*
+      The repository does not sign. SocialService fills these in on the
+      way out, in one batch for the whole page — signing per row here
+      would be one HTTP call to Storage per image, inside the mapper.
+    */
+    url: null,
+    urlExpiresAt: null,
     durationMs: r.duration_ms,
     ordinal: r.ordinal,
   };

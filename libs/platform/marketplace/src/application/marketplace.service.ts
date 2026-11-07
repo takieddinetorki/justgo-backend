@@ -1,5 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { BusinessRuleError, ValidationError, type AccountId } from '@justgo/kernel';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { BusinessRuleError, ForbiddenError, ValidationError, type AccountId } from '@justgo/kernel';
+import { MEDIA_PORT, type MediaPort } from '@justgo/media';
 import type { MarketplacePort } from '../contract/marketplace.port';
 import type {
   BidDTO,
@@ -17,15 +18,83 @@ export const MARKETPLACE_REPOSITORY = Symbol('MARKETPLACE_REPOSITORY');
 const MAX_PHOTOS = 20;
 const MAX_BID_MESSAGE = 1000;
 
+/** The only bucket a car photo may live in. */
+const PHOTO_BUCKET = 'vehicle-photos';
+
+/** An hour, matching the feed. Long enough to browse, short enough to rot. */
+const PHOTO_URL_TTL = 3600;
+
 @Injectable()
 export class MarketplaceService implements MarketplacePort {
-  constructor(@Inject(MARKETPLACE_REPOSITORY) private readonly repo: PgMarketplaceRepository) {}
+  private readonly logger = new Logger(MarketplaceService.name);
+
+  constructor(
+    @Inject(MARKETPLACE_REPOSITORY) private readonly repo: PgMarketplaceRepository,
+    @Inject(MEDIA_PORT) private readonly media: MediaPort,
+  ) {}
+
+  /**
+   * Fill `photoUrls` with URLs that load.
+   *
+   * `photoUrls` is what the shipped app reads, so it keeps that name and
+   * keeps carrying whatever absolute URLs an older client stored. What is
+   * new is that a listing's `photos` — (bucket, path) into the private
+   * `vehicle-photos` bucket — are signed here and appended, in gallery
+   * order, with the refs first because that is where new photos go.
+   *
+   * One Storage call per page, not per photo: browse returns a screenful
+   * of cars and each of them has a cover shot.
+   */
+  private async withPhotoUrls<T extends ListingDTO | ListingDTO[]>(input: T): Promise<T> {
+    const listings: ListingDTO[] = Array.isArray(input) ? input : [input];
+    const paths = listings.flatMap((l) => (l.photos ?? []).map((p) => p.path));
+    if (paths.length === 0) return input;
+    let urls = new Map<string, string>();
+    try {
+      urls = await this.media.createSignedDownloadUrls({
+        bucket: PHOTO_BUCKET,
+        paths,
+        expiresInSeconds: PHOTO_URL_TTL,
+      });
+    } catch (e) {
+      // A car with no picture still sells better than a page that 500s.
+      this.logger.warn(`could not sign ${paths.length} listing photo(s): ${String(e)}`);
+    }
+    for (const listing of listings) {
+      const signed = (listing.photos ?? [])
+        .map((p) => urls.get(p.path))
+        .filter((u): u is string => Boolean(u));
+      listing.photoUrls = [...signed, ...listing.photoUrls];
+    }
+    return input;
+  }
+
+  /**
+   * A photo ref has to be the caller's own upload, in the car bucket.
+   *
+   * Same rule as a post's media, and for the same reason: the path is
+   * supplied by the client, and without the namespace check a seller could
+   * list somebody else's scanned registration as a picture of a car.
+   */
+  private assertPhotos(sellerAccountId: AccountId, input: CreateListingDTO): void {
+    const photos = input.photos ?? [];
+    const total = photos.length + (input.photoUrls ?? []).length;
+    if (total > MAX_PHOTOS) {
+      throw new ValidationError(`A listing may carry at most ${MAX_PHOTOS} photos`);
+    }
+    for (const photo of photos) {
+      if (photo.bucket !== PHOTO_BUCKET) {
+        throw new ValidationError(`Listing photos must come from the "${PHOTO_BUCKET}" bucket`);
+      }
+      if (!photo.path.startsWith(`${sellerAccountId}/`)) {
+        throw new ForbiddenError('Listing photos must be your own uploads');
+      }
+    }
+  }
 
   publish(sellerAccountId: AccountId, input: CreateListingDTO): Promise<ListingDTO> {
     if (!input.title?.trim()) throw new ValidationError('A listing needs a title');
-    if ((input.photoUrls ?? []).length > MAX_PHOTOS) {
-      throw new ValidationError(`A listing may carry at most ${MAX_PHOTOS} photos`);
-    }
+    this.assertPhotos(sellerAccountId, input);
     /*
       A range needs a currency, and it has to be the one the car is priced in.
       Otherwise a seller could ask 1 800 000 DZD and accept offers from
@@ -49,19 +118,19 @@ export class MarketplaceService implements MarketplacePort {
     }
     // §21.5 seam: beta auto-publishes. A moderation step (status
     // 'pending_review' + review reactor) can gate this without contract change.
-    return this.repo.insert(sellerAccountId, input, range);
+    return this.repo.insert(sellerAccountId, input, range).then((l) => this.withPhotoUrls(l));
   }
 
-  browse(query: ListingQuery): Promise<ListingDTO[]> {
-    return this.repo.browse(query);
+  async browse(query: ListingQuery): Promise<ListingDTO[]> {
+    return this.withPhotoUrls(await this.repo.browse(query));
   }
 
-  get(listingId: string): Promise<ListingDTO> {
-    return this.repo.find(listingId);
+  async get(listingId: string): Promise<ListingDTO> {
+    return this.withPhotoUrls(await this.repo.find(listingId));
   }
 
-  getAsSeller(sellerAccountId: AccountId, listingId: string): Promise<ListingDTO> {
-    return this.repo.findAsSeller(sellerAccountId, listingId);
+  async getAsSeller(sellerAccountId: AccountId, listingId: string): Promise<ListingDTO> {
+    return this.withPhotoUrls(await this.repo.findAsSeller(sellerAccountId, listingId));
   }
 
   async contact(

@@ -1,5 +1,6 @@
 import type { AccountId, Uuid } from '@justgo/kernel';
 import { SocialService } from './social.service';
+import type { MediaPort } from '@justgo/media';
 import type { PgSocialRepository } from '../infra/pg-social.repository';
 
 /*
@@ -25,7 +26,16 @@ function harness() {
       ({ body: input.body }) as never,
     remove: async (_p: Uuid, reason: string) => ({ reason }) as never,
   } as unknown as PgSocialRepository;
-  return { service: new SocialService(repo), published };
+  /*
+    A media port that signs nothing. These tests are about the publishing
+    RULES, and a fake that returned URLs would only assert that a Map
+    lookup works. The service has to tolerate an empty result anyway —
+    that is the Storage-is-down path.
+  */
+  const media = {
+    createSignedDownloadUrls: async () => new Map<string, string>(),
+  } as unknown as MediaPort;
+  return { service: new SocialService(repo, media), published };
 }
 
 const photo = (overrides: Record<string, unknown> = {}) => ({

@@ -45,6 +45,7 @@ interface Row {
   currency: string | null;
   description: string | null;
   photo_urls: string[];
+  photos: { bucket: string; path: string }[];
   city: string | null;
   country: string | null;
   status: string;
@@ -83,7 +84,7 @@ export interface BidRow {
 }
 
 const COLS = `id, seller_account_id, supplier_id, title, brand, model, year, mileage_km,
-  amount_minor, currency, description, photo_urls, city, country, status, created_at,
+  amount_minor, currency, description, photo_urls, photos, city, country, status, created_at,
   fuel_type, transmission, body_type, colour, doors, engine_hp, condition,
   is_customs_cleared, papers_in_order, owner_count, accident_free`;
 
@@ -111,6 +112,7 @@ function toDTO(r: Row): ListingDTO {
     amount: amountMinor !== null && r.currency ? { amountMinor, currency: r.currency } : null,
     description: r.description,
     photoUrls: r.photo_urls,
+    photos: r.photos ?? [],
     city: r.city,
     country: r.country,
     status: r.status as ListingStatus,
@@ -207,13 +209,13 @@ export class PgMarketplaceRepository {
       const res = await c.query<Row>(
         `insert into marketplace.car_listings
            (seller_account_id, title, brand, model, year, mileage_km, amount_minor, currency,
-            description, photo_urls, city, country, geo,
+            description, photo_urls, photos, city, country, geo,
             fuel_type, transmission, body_type, colour, doors, engine_hp, condition,
             is_customs_cleared, papers_in_order, owner_count, accident_free)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-                 case when $13::float8 is null then null
-                      else ST_SetSRID(ST_MakePoint($14::float8, $13::float8), 4326)::geography end,
-                 $15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,
+                 case when $14::float8 is null then null
+                      else ST_SetSRID(ST_MakePoint($15::float8, $14::float8), 4326)::geography end,
+                 $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
          returning ${COLS}`,
         [
           sellerAccountId,
@@ -226,6 +228,7 @@ export class PgMarketplaceRepository {
           input.amount?.currency ?? null,
           input.description ?? null,
           input.photoUrls ?? [],
+          JSON.stringify(input.photos ?? []),
           input.city ?? null,
           input.country ?? null,
           input.lat ?? null,

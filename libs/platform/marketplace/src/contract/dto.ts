@@ -38,6 +38,12 @@ export interface VehicleSpecDTO {
   accidentFree: boolean | null;
 }
 
+/** A photo in the private `vehicle-photos` bucket — never a URL. */
+export interface ListingPhotoDTO {
+  bucket: string;
+  path: string;
+}
+
 export interface ListingDTO extends VehicleSpecDTO {
   id: string;
   sellerAccountId: AccountId;
@@ -49,7 +55,16 @@ export interface ListingDTO extends VehicleSpecDTO {
   mileageKm: number | null;
   amount: MoneyDTO | null;
   description: string | null;
+  /**
+   * URLs that load, ready for `<img src>`. Signed refs first, then any
+   * absolute URL an older client stored.
+   *
+   * These EXPIRE — about an hour. Re-read the listing, or re-sign the
+   * refs in `photos` through `POST /v1/media/downloads`.
+   */
   photoUrls: string[];
+  /** The durable (bucket, path) refs behind the signed URLs above. */
+  photos: ListingPhotoDTO[];
   city: string | null;
   country: string | null;
   status: ListingStatus;
@@ -102,7 +117,14 @@ export interface CreateListingDTO extends Partial<VehicleSpecDTO> {
   mileageKm?: number;
   amount?: MoneyDTO;
   description?: string;
+  /**
+   * Legacy. Absolute URLs only, and there is nowhere to get one: the
+   * buckets are private. Send `photos` instead — this stays accepted so
+   * that a client we cannot redeploy keeps working.
+   */
   photoUrls?: string[];
+  /** Photos as uploaded: `{bucket: 'vehicle-photos', path}` from the upload. */
+  photos?: ListingPhotoDTO[];
   city?: string;
   country?: string;
   lat?: number;

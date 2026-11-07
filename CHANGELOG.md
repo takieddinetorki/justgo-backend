@@ -11,6 +11,108 @@ the test suite — a distinction this project has earned the hard way.
 
 ---
 
+## 2026-11-07
+
+**No image in the product could be displayed, and never could.** Reported as
+"images on the blog and when selling a car don't show"; it turned out to be
+one missing half of the media design rather than two bugs.
+
+### The defect
+
+Every storage bucket is private — all nine, checked on the box — and the API
+never proxies bytes, so the only way to show an image is a short-lived signed
+URL. The DTOs return `(bucket, path)` and say so in their own comments: *"The
+client asks for a fresh signed URL when it actually needs the bytes."*
+
+**There was nothing to ask.** `POST /v1/media/uploads` existed; no endpoint
+ever turned a stored pair back into a URL. `createSignedDownloadUrl` had been
+on the media port since Phase 1 with exactly one caller — `documents`, which
+is why factures were the only artefact in the system that ever rendered.
+
+The evidence on the dev box, before the fix:
+
+| | |
+|---|---|
+| `post-media` | 1 object uploaded, 1 row pointing at it, no way to view it |
+| `vehicle-photos` | **2 objects uploaded, and every listing stored with `photo_urls = '{}'`** |
+| `supplier-media` | 6 objects, same |
+| `documents` | 39 objects, and these worked |
+
+Selling a car failed one step earlier than the blog did. `photoUrls` is typed
+`z.array(z.string().url())` — it demands an absolute URL, and after an upload
+the app holds a (bucket, path) pair and a write-only handle that expires in
+two hours. Neither is a URL. So the screen uploaded the photo and then sent no
+photo at all, which is why the bytes are on disk with nothing pointing at them.
+
+### Added
+
+- **`POST /v1/media/downloads`** — the missing read side. Batched: send up to
+  50 `(bucket, path)` pairs, get signed URLs back, one call to Storage per
+  bucket rather than one per image. The URLs need **no headers**, so they go
+  straight into an `<img>`; verified against the deployment by fetching one
+  with no `Authorization` at all.
+
+  Readable by any signed-in caller for `post-media`, `avatars`,
+  `supplier-media`, `vehicle-photos` and `part-photos` — that content is
+  already published to people who did not upload it, so restricting it to the
+  uploader is the same as not serving it. Only within your own upload
+  namespace for `registrations`, `driver-documents` and `message-attachments`.
+  `documents` is refused outright: a facture is reached through
+  `/v1/documents/{id}/download`, which checks the order behind it, and routing
+  it through a generic media endpoint would quietly downgrade that to "holds
+  any session".
+
+- **`MediaPort.createSignedDownloadUrls`** — signs a whole list in one POST.
+  A feed page is twenty posts; signing one at a time is hundreds of sequential
+  round trips before the page can be returned.
+
+### Fixed
+
+- **The blog.** `PostMedia` now carries `url` and `urlExpiresAt`, signed when
+  the post is read, in one batch for the page. `(bucket, path)` is still
+  returned, because it does not expire and the URL does.
+
+- **Selling a car.** `CreateListing` accepts `photos: [{bucket, path}]`, stored
+  in a new `marketplace.car_listings.photos` jsonb column (migration 0034).
+  On read, `photoUrls` is filled with signed URLs from those refs followed by
+  any absolute URL an older client stored, so **the field the shipped app
+  already reads starts working without the app changing**. `photoUrls` stays
+  accepted on write and is marked deprecated in the spec.
+
+- Signing never costs the content. If Storage is unreachable the URL is null
+  and the post or the listing still arrives — a card with no picture, not an
+  empty feed.
+
+- **The OpenAPI upload enum was three buckets short** (`post-media`,
+  `driver-documents`, `supplier-media`), so the spec said the API would reject
+  calls it has always accepted.
+
+### Verified
+
+The smoke test now ends at the bytes rather than at the row: it uploads a real
+PNG through the signed PUT, attaches it to a post and to a car, reads both
+back, and fetches the returned URL **with no headers** asserting
+`200 image/png` and the right length. Plus: a missing object is a null URL and
+not an error, a facture cannot be signed through the media endpoint, somebody
+else's identity document cannot either, and a photo uploaded by another
+account is refused on a listing.
+
+### Not done here
+
+- **Chat attachments are still invisible**, and it is the same defect.
+  `message-attachments` is restricted to your own namespace here, so you can
+  see what you sent and not what you received; the correct check is "is a
+  participant in this conversation", which lives in the messaging schema and
+  therefore needs a route in that module (§17.4). Nothing about the mechanism
+  changes, only where the check runs.
+- Supplier logos and avatars return `(bucket, path)` and can now be resolved
+  through `/v1/media/downloads`, but those DTOs do not yet carry a `url` the
+  way posts and listings do.
+- The two orphaned objects in `vehicle-photos` are left alone. Nothing records
+  which listing they were meant for.
+
+---
+
 ## 2026-10-31
 
 Deployed 2026-10-30's work to the dev box and probed the public surface from

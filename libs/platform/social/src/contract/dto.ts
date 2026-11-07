@@ -26,6 +26,20 @@ export interface PostMediaDTO {
   kind: PostMediaKind;
   bucket: string;
   path: string;
+  /**
+   * A URL that will actually load the bytes — put `<img src>` here.
+   *
+   * `post-media` is a private bucket, so (bucket, path) alone renders
+   * nothing; this is signed when the post is read. It EXPIRES, which is
+   * why the pair above is still returned: re-read the post, or re-sign
+   * the pair through `POST /v1/media/downloads`.
+   *
+   * null means Storage had no such object — an image that was deleted
+   * under a post that still exists. Show the post without it.
+   */
+  url: string | null;
+  /** When `url` stops working. null whenever `url` is null. */
+  urlExpiresAt: string | null;
   /** Video only. */
   durationMs: number | null;
   ordinal: number;

@@ -19,6 +19,7 @@
     "@justgo/contracts": "workspace:*",
     "@justgo/events": "workspace:*",
     "@justgo/kernel": "workspace:*",
+    "@justgo/media": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/throttler": "^6.4.0",
     "pg": "^8.16.3",

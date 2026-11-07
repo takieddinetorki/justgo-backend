@@ -112,6 +112,35 @@ export class SupabaseStorageAdapter implements MediaPort {
     return `${this.baseUrl}/storage/v1/${res.signedURL.replace(/^\//, '')}`;
   }
 
+  /*
+    One POST signs the whole list. Note the shape difference from the
+    single-object call: the bucket is the LAST path segment and the object
+    paths go in the body, so `object/sign/post-media` with two paths is a
+    batch while `object/sign/post-media/a/b.png` is one object. Getting
+    that backwards signs an object literally named after the bucket.
+  */
+  async createSignedDownloadUrls(input: {
+    bucket: string;
+    paths: string[];
+    expiresInSeconds?: number;
+  }): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const paths = [...new Set(input.paths)];
+    if (paths.length === 0) return out;
+    const res = await this.http.post<
+      { error: string | null; path: string | null; signedURL: string }[]
+    >(`object/sign/${input.bucket}`, {
+      expiresIn: input.expiresInSeconds ?? this.defaultTtl,
+      paths,
+    });
+    for (const row of res) {
+      // Storage reports a per-path failure in the row, not as an HTTP error.
+      if (row.error || !row.path || !row.signedURL) continue;
+      out.set(row.path, `${this.baseUrl}/storage/v1/${row.signedURL.replace(/^\//, '')}`);
+    }
+    return out;
+  }
+
   async putObject(input: {
     bucket: string;
     path: string;

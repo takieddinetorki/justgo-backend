@@ -665,11 +665,18 @@ is not yet finalised; the request/status flow is live.)
   `acceptsOffers`, `limit`.
 - **`GET /v1/marketplace/listings/{id}`** → `Listing` (public).
 - **`POST /v1/marketplace/listings`** body
-  `{ title, brand?, model?, year?, mileageKm?, amount?, description?, photoUrls?,
+  `{ title, brand?, model?, year?, mileageKm?, amount?, description?, photos?,
      city?, country?, lat?, lng?, fuelType?, transmission?, bodyType?, colour?,
      doors?, engineHp?, condition?, isCustomsCleared?, papersInOrder?,
      ownerCount?, accidentFree?, offerRange? }`
   → `Listing` (auto-published in beta). Needs `listing.publish`.
+  - **`photos`** is `[{ bucket:"vehicle-photos", path }]` — the pairs returned
+    by `POST /v1/media/uploads`, in gallery order, and they must be your own
+    uploads. Up to 20.
+  - **`photoUrls` is deprecated as an input.** It asks for an absolute URL
+    and the buckets are private, so there is none to give; it is still
+    accepted only for a client already in the field. Sending it is why
+    listings used to be created with no photos at all.
   - `fuelType`: `essence | diesel | gpl | hybrid | electric`
   - `transmission`: `manual | automatic`
   - `bodyType`: `citadine | berline | break | suv | monospace | utilitaire |
@@ -689,12 +696,18 @@ is not yet finalised; the request/status flow is live.)
 { "id":"uuid","sellerAccountId":"uuid","supplierId":null,"title":"BMW 320d 2016",
   "brand":"BMW","model":"320d","year":2016,"mileageKm":120000,
   "amount":{"amountMinor":1500000,"currency":"EUR"},"description":null,
-  "photoUrls":[],"city":"Paris","country":"FR","status":"published","createdAt":"…",
+  "photoUrls":["http://…/storage/v1/object/sign/vehicle-photos/…?token=…"],
+  "photos":[{"bucket":"vehicle-photos","path":"8f1c…/1730300000_front.jpg"}],
+  "city":"Paris","country":"FR","status":"published","createdAt":"…",
   "fuelType":"diesel","transmission":"automatic","bodyType":"berline",
   "colour":"Noir","doors":5,"engineHp":190,"condition":"used",
   "isCustomsCleared":true,"papersInOrder":true,"ownerCount":2,"accidentFree":true,
   "acceptsOffers":true }
 ```
+
+**`photoUrls` are signed and expire** (about an hour); `photos` are the
+durable refs behind them. Render `photoUrls`; when one stops working, re-read
+the listing or re-sign `photos` through `POST /v1/media/downloads`.
 
 `offerRange` and `pendingBidCount` appear **only** on
 `GET /v1/marketplace/listings/{id}/private`, the owner's own view.
@@ -836,12 +849,47 @@ Notification `type` values you'll see: `welcome`, `request.received`,
 > no client changes.
 
 ### Media & scan — Phase 2
-Uploads never stream through the API — you get a short-lived pre-signed URL and
-`PUT` the bytes straight to storage.
+
+Bytes never stream through the API, in either direction. **Every bucket is
+private**, so an image is always two steps: a pre-signed `PUT` to upload, and
+a short-lived signed URL to display.
+
+#### Uploading
 - **`POST /v1/media/uploads`** body
-  `{ bucket:"registrations|vehicle-photos|part-photos|avatars", filename, contentType? }`
-  → `{ uploadUrl, path, token, expiresInSeconds }`. `PUT` the file to `uploadUrl`,
-  then persist the returned `path` (e.g. as a vehicle `photoUrl`, or feed it to scan).
+  `{ bucket, filename, contentType? }` where `bucket` is one of
+  `registrations`, `vehicle-photos`, `part-photos`, `avatars`,
+  `message-attachments`, `post-media`, `driver-documents`, `supplier-media`
+  → `{ uploadUrl, path, token, expiresInSeconds }`.
+
+  `PUT` the file to `uploadUrl`, then **persist the returned `path` together
+  with the bucket** — that pair is the durable reference. `uploadUrl` is a
+  write handle that expires in two hours; it is not a way to read the file
+  back and must never be stored as one.
+
+#### Displaying
+- **`POST /v1/media/downloads`** body
+  `{ items: [{ bucket, path }], expiresInSeconds? }` (up to 50 items)
+  → `{ items: [{ bucket, path, url, expiresAt }] }`.
+
+  `url` needs **no headers** — put it straight in an `<img>` or
+  `Image.network`. It expires (default one hour), so sign when you are about
+  to render, not when you store. `url: null` means storage has no such
+  object; draw the rest of the card without it.
+
+  Batch it. One call carries everything on screen; the server makes one
+  request to storage per bucket, however many images you asked for.
+
+  **You do not need this for a feed or a listing** — those already carry
+  signed URLs in their own responses (`PostMedia.url`, `Listing.photoUrls`).
+  Use it to refresh a URL that has expired, or for images whose DTO still
+  returns only the pair (a supplier logo, an avatar).
+
+  Who may read what: `post-media`, `avatars`, `supplier-media`,
+  `vehicle-photos` and `part-photos` are readable by any signed-in caller,
+  because that content is already published to people who did not upload it.
+  `registrations`, `driver-documents` and `message-attachments` only within
+  your own upload namespace. `documents` is **not** served here — a facture
+  comes from `GET /v1/documents/{id}/download`.
 - **`POST /v1/vehicles/scan`** body `{ bucket:"registrations", path }` →
   `{ draft: { vin, brand, model, plate, year, confidence } }`.
   OCR of a registration document. The result is a **draft only** — show it for
@@ -943,6 +991,15 @@ car has no supplier; a *fournisseur* staff member posting a promotion has both.
     **403** otherwise — the badge is what readers trust, so it is not a
     free-text field.
   - `durationMs` is video only.
+
+**Rendering a post's media.** Each item in `Post.media` carries a signed
+`url` alongside `(bucket, path)` — the feed signs the whole page in one go,
+so there is no second request to make. Put `url` straight in an `<img>`; it
+needs no headers and expires at `urlExpiresAt` (about an hour). `url: null`
+means the object is gone from storage — show the post without the picture.
+`(bucket, path)` does not expire, so keep it if you cache, and re-sign
+through `POST /v1/media/downloads` when you come back to it.
+
 - **`GET /v1/posts/{id}`** → `Post`.
 - **`DELETE /v1/posts/{id}`** → `Post` with status `removed`. Author only;
   **404** if it is not yours. Not a delete: a post somebody has commented on

@@ -19,6 +19,24 @@ export interface MediaPort {
   /** Short-lived download URL for a private object (§14). */
   createSignedDownloadUrl(input: { bucket: string; path: string; expiresInSeconds?: number }): Promise<string>;
   /**
+   * The same thing for many objects in ONE bucket, in one round trip.
+   *
+   * A feed page is twenty posts with up to ten images each. Signing those
+   * one at a time is two hundred sequential HTTP calls to Storage before
+   * the page can be returned, which is not a page anybody waits for.
+   * Storage signs a whole list in a single POST.
+   *
+   * Returns a map from path to URL. A path that is MISSING from the map
+   * is an object Storage would not sign — deleted, or never uploaded —
+   * and the caller decides what that means for its own DTO. It is not an
+   * error: a post whose image is gone is still a post.
+   */
+  createSignedDownloadUrls(input: {
+    bucket: string;
+    paths: string[];
+    expiresInSeconds?: number;
+  }): Promise<Map<string, string>>;
+  /**
    * Server-side write. Unlike `createUploadUrl`, the bytes go through the
    * API — which is correct for artefacts the PLATFORM issues rather than
    * the user uploads: a sealed document must never be writable by a

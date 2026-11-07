@@ -4,16 +4,19 @@
   "include": [],
   "references": [
     {
-      "path": "../../shared/contracts"
+      "path": "../../crosscutting/media"
     },
     {
-      "path": "../../shared/auth"
+      "path": "../../shared/kernel"
     },
     {
       "path": "../../shared/events"
     },
     {
-      "path": "../../shared/kernel"
+      "path": "../../shared/contracts"
+    },
+    {
+      "path": "../../shared/auth"
     },
     {
       "path": "./tsconfig.lib.json"

@@ -492,7 +492,17 @@ function schemas(): Record<string, unknown> {
         mileageKm: { type: 'integer', nullable: true },
         amount: { allOf: [ref('Money')], nullable: true },
         description: { type: 'string', nullable: true },
-        photoUrls: { type: 'array', items: { type: 'string' } },
+        photoUrls: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'URLs that load, signed from `photos` and good for about an hour, followed by any absolute URL an older client stored. Re-read the listing, or re-sign `photos` through POST /v1/media/downloads.',
+        },
+        photos: {
+          type: 'array',
+          items: ref('MediaRef'),
+          description: 'The durable references behind the URLs above.',
+        },
         city: { type: 'string', nullable: true, example: 'Alger' },
         country: { type: 'string', nullable: true, example: 'DZ' },
         status: {
@@ -827,12 +837,20 @@ function schemas(): Record<string, unknown> {
     },
     PostMedia: {
       type: 'object',
-      description: 'A path in a private bucket, not bytes. Fetch via a signed URL.',
+      description:
+        'An image or video on a post. `url` is what you render; (bucket, path) is the durable reference behind it.',
       properties: {
         id: { type: 'string', format: 'uuid' },
         kind: { type: 'string', enum: ['photo', 'video'] },
         bucket: { type: 'string', example: 'post-media' },
         path: { type: 'string' },
+        url: {
+          type: 'string',
+          nullable: true,
+          description:
+            'Signed when the post is read, and good for about an hour — put it straight in an <img>. null means the object is gone from storage; show the post without it. To refresh without re-reading the post, send (bucket, path) to POST /v1/media/downloads.',
+        },
+        urlExpiresAt: { type: 'string', format: 'date-time', nullable: true },
         durationMs: { type: 'integer', nullable: true, description: 'Video only.' },
         ordinal: {
           type: 'integer',
@@ -1908,6 +1926,9 @@ function enrich(doc: OpenAPIObject): void {
               'part-photos',
               'avatars',
               'message-attachments',
+              'post-media',
+              'driver-documents',
+              'supplier-media',
             ],
           },
           filename: { type: 'string', minLength: 1, maxLength: 200, example: 'front.jpg' },
@@ -1917,6 +1938,48 @@ function enrich(doc: OpenAPIObject): void {
       { bucket: 'vehicle-photos', filename: 'front.jpg', contentType: 'image/jpeg' },
     ),
     responses: { ...ok(ref('SignedUpload')), ...errors() },
+  });
+  set('/v1/media/downloads', 'post', {
+    tags: ['Media'],
+    summary: 'Signed URLs for stored objects',
+    description:
+      'Turns (bucket, path) references into URLs that load. Every bucket is private, so a stored pair renders nothing on its own. Batched: send everything on screen in one call, up to 50. The URLs need no headers — point an <img> at them — and expire after `expiresInSeconds` (default 3600). `post-media`, `avatars`, `supplier-media`, `vehicle-photos` and `part-photos` are readable by any signed-in caller because that content is already published to other people; `registrations`, `driver-documents` and `message-attachments` only within your own upload namespace. Documents are NOT served here — use /v1/documents/{id}/download, which checks the order behind them. A `url` of null means storage has no such object.',
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['items'],
+        properties: {
+          items: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 50,
+            items: ref('MediaRef'),
+          },
+          expiresInSeconds: { type: 'integer', minimum: 60, maximum: 86400, default: 3600 },
+        },
+      },
+      { items: [{ bucket: 'post-media', path: '8f1c.../1730300000_front.jpg' }] },
+    ),
+    responses: {
+      ...ok({
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                bucket: { type: 'string' },
+                path: { type: 'string' },
+                url: { type: 'string', nullable: true },
+                expiresAt: { type: 'string', format: 'date-time', nullable: true },
+              },
+            },
+          },
+        },
+      }),
+      ...errors(),
+    },
   });
   set('/v1/vehicles/scan', 'post', {
     tags: ['Media'],
@@ -2051,7 +2114,21 @@ function enrich(doc: OpenAPIObject): void {
           mileageKm: { type: 'integer', minimum: 0 },
           amount: ref('Money'),
           description: { type: 'string', maxLength: 5000 },
-          photoUrls: { type: 'array', maxItems: 20, items: { type: 'string', format: 'uri' } },
+          photoUrls: {
+            type: 'array',
+            maxItems: 20,
+            items: { type: 'string', format: 'uri' },
+            deprecated: true,
+            description:
+              'Legacy. The buckets are private, so there is no URL to put here — send `photos` instead. Still accepted for a client already in the field.',
+          },
+          photos: {
+            type: 'array',
+            maxItems: 20,
+            items: ref('MediaRef'),
+            description:
+              'The photos, as returned by POST /v1/media/uploads into the `vehicle-photos` bucket. Must be your own uploads. Gallery order is array order.',
+          },
           city: { type: 'string', maxLength: 120 },
           country: { type: 'string', minLength: 2, maxLength: 2, example: 'DZ' },
           lat: { type: 'number' },
