@@ -92,7 +92,15 @@ export class MarketplaceService implements MarketplacePort {
     }
   }
 
-  publish(sellerAccountId: AccountId, input: CreateListingDTO): Promise<ListingDTO> {
+  /*
+    `async`, although the validation below is synchronous. A method whose
+    signature says Promise but that throws before its first await hands
+    callers TWO failure shapes — a thrown error and a rejected promise —
+    so `await` catches one and `.catch()` the other. It also makes
+    `expect(...).rejects` simply not apply, which is how a validation
+    test can pass for the wrong reason.
+  */
+  async publish(sellerAccountId: AccountId, input: CreateListingDTO): Promise<ListingDTO> {
     if (!input.title?.trim()) throw new ValidationError('A listing needs a title');
     this.assertPhotos(sellerAccountId, input);
     /*
