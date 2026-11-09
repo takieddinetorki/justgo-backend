@@ -564,6 +564,9 @@ importers:
       '@types/pg':
         specifier: 8.20.0
         version: 8.20.0
+      jsqr:
+        specifier: ^1.4.0
+        version: 1.4.0
 
   libs/platform/drivers:
     dependencies:
