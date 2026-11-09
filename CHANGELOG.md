@@ -11,6 +11,84 @@ the test suite — a distinction this project has earned the hard way.
 
 ---
 
+## 2026-11-09 (later)
+
+The QR and the printed verification now carry **the document's own
+fingerprint** rather than its number, and that fingerprint is what the
+verification endpoint resolves.
+
+### One thing that cannot be done, and what is done instead
+
+**A document cannot contain the hash of its own file.** The hash is taken
+over the bytes; printing it changes the bytes; the printed value is then
+wrong. There is no text you can print that satisfies *"hash of this file,
+including this text"* — producing one on demand would mean breaking SHA-256.
+
+So there are two hashes, each doing the job it can:
+
+| | over what | printable | what it answers |
+|---|---|---|---|
+| `contentHash` **(new)** | the document's content: number, type, issue instant, chain position, and the exact payload it was rendered from | **yes** | "is this document real, and does it still stand" |
+| `sha256` (unchanged) | the stored PDF bytes | no | "is the file in my hand the one you sealed" |
+
+`contentHash` is as sensitive to content as a file hash would be: one comma
+in a line description, one digit in a price, one character in the buyer's
+name, and the digest is entirely different.
+
+**No two documents share one, including two that say exactly the same
+thing.** `number` is in the pre-image and is unique per (series, year, seq)
+from a gapless counter, so two identical invoices issued a second apart hash
+differently; `prevSha256` is in there too, binding the digest to the
+document's place in the series. The column carries a **unique index**, so
+this is something the database refuses to break rather than something we
+believe we computed correctly.
+
+### Added
+
+- **Migration 0035** — `documents.content_hash`, with a `^[0-9a-f]{64}$`
+  check and a unique index.
+- **The fingerprint is printed on the page**, in full, in Courier (0/O and
+  1/l have to be distinguishable on paper) in eight groups of eight across
+  two lines, under *EMPREINTE DE LA FACTURE (SHA-256)*, with the page to type
+  it into printed beneath.
+- **The QR now encodes `…/verify/{contentHash}`** instead of the number. It
+  also got bigger — 76pt → 96pt — because 64 hex characters push the symbol
+  to 45×45, and at the old size the modules fall below what a phone camera
+  reads off paper.
+- **`GET`/`POST /v1/documents/verify/{fingerprint}`** resolves a content hash
+  **or** a document number on the same path. Separators and case are ignored,
+  so the value can be typed straight out of its printed groups. Documents
+  issued before today have no fingerprint and keep verifying by number —
+  their printed QR carries the number.
+
+### Why a hash is a better key than a number
+
+A document number is sequential and guessable, which is why this endpoint
+returns no amounts and no parties and is rate limited per address. A content
+hash cannot be walked. The response is unchanged for now — widening it is a
+separate decision — but the enumeration pressure on the number is gone for
+anyone using the QR.
+
+### Verified
+
+`content-hash.spec.ts` asserts the digest changes on a single character in a
+description, a price, a name or a currency; that four documents differing
+only by number, by issue instant, or by chain position produce four distinct
+hashes; that key order does not matter (the payload returns through jsonb,
+which does not preserve it) while **array** order does; and that a hash typed
+back with spaces, dashes or capitals normalises, while a document number
+falls through to the number lookup.
+
+Checked on a real rendered facture: the hash printed on the page, the hash in
+the QR, and `documentContentHash(...)` are the same value — the page text was
+extracted with PyMuPDF and the QR decoded with jsQR, independently.
+
+The live smoke test now issues a facture, reads its `contentHash`, and
+verifies it three ways: as returned, typed back in its printed groups with
+capitals, and with one character changed — which must find nothing.
+
+---
+
 ## 2026-11-09
 
 ### Added

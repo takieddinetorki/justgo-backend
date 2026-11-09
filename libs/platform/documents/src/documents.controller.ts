@@ -57,18 +57,25 @@ export class DocumentsController {
   }
 
   /**
-   * `GET /v1/documents/verify/{number}` — public, and printed on every
-   * page as a QR target.
+   * `GET /v1/documents/verify/{fingerprint}` — public, and what the QR on
+   * every document opens.
+   *
+   * The path takes the **content hash printed on the document**: scanned,
+   * pasted, or typed off the page in the groups it is printed in. A
+   * document NUMBER is accepted too, for documents issued before hashes
+   * existed and for anyone who only has the reference.
    *
    * Returns status and authenticity only: no amounts, no parties. Numbers
    * are guessable and this endpoint is open to the world.
    */
   /*
-    Limited, because document numbers are SEQUENTIAL: FA-2026-000001,
-    000002, and so on, so the series can be walked. The endpoint is public by
-    design — it is the QR target printed on every document — and deliberately
-    returns only authenticity and status, never amounts or parties, so what
-    enumeration yields is a volume signal rather than data.
+    Limited, because document NUMBERS are sequential: FA-2026-000001,
+    000002, and so on, so the series can be walked. Content hashes cannot
+    be — that is one of the reasons the QR carries the hash now — but the
+    number is still accepted, so the limit stays. The endpoint is public by
+    design and deliberately returns only authenticity and status, never
+    amounts or parties, so what enumeration yields is a volume signal
+    rather than data.
 
     60 a minute, and the number is a trade rather than a maximum. It is
     ANONYMOUS, so the bucket is per ADDRESS: an accountant checking a batch of
@@ -79,10 +86,10 @@ export class DocumentsController {
     enumerating; the limit is about cost and noise.
   */
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
-  @Get('verify/:number')
+  @Get('verify/:fingerprint')
   @Public()
-  async verify(@Param('number') number: string): Promise<VerificationResult> {
-    return this.documents.verifyByNumber(number);
+  async verify(@Param('fingerprint') fingerprint: string): Promise<VerificationResult> {
+    return this.documents.verifyByNumber(fingerprint);
   }
 
   /**
@@ -101,16 +108,16 @@ export class DocumentsController {
   */
   /* Same bucket and same reasoning as the GET above. */
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
-  @Post('verify/:number')
+  @Post('verify/:fingerprint')
   @Public()
   async verifyFile(
-    @Param('number') number: string,
+    @Param('fingerprint') fingerprint: string,
     @Body() body: unknown,
   ): Promise<VerificationResult> {
     const parsed = verifySchema.safeParse(body ?? {});
     if (!parsed.success) throw new ValidationError('Invalid verification request', { issues: parsed.error.issues });
     const supplied = parsed.data.file ? Buffer.from(parsed.data.file, 'base64') : undefined;
-    return this.documents.verifyByNumber(number, supplied);
+    return this.documents.verifyByNumber(fingerprint, supplied);
   }
 
   /**

@@ -16,6 +16,7 @@ interface DocumentRow {
   path: string;
   byte_size: number;
   sha256: string;
+  content_hash: string | null;
   signature: string;
   algo: string;
   key_id: string;
@@ -37,6 +38,7 @@ function toDTO(r: DocumentRow): DocumentDTO {
     supplierId: r.supplier_id ? asId<SupplierId>(r.supplier_id) : null,
     status: r.status,
     sha256: r.sha256,
+    contentHash: r.content_hash,
     algo: r.algo,
     keyId: r.key_id,
     signatureFormat: r.signature_format,
@@ -48,7 +50,7 @@ function toDTO(r: DocumentRow): DocumentDTO {
 }
 
 const COLUMNS = `id, type, number, subject_type, subject_id, issued_to_account_id,
-  supplier_id, bucket, path, byte_size, sha256, signature, algo, key_id,
+  supplier_id, bucket, path, byte_size, sha256, content_hash, signature, algo, key_id,
   signature_format, status, issued_at, voided_at, void_reason`;
 
 /** All SQL confined to the `documents` schema (§17.4). */
@@ -130,6 +132,14 @@ export class PgDocumentsRepository {
       path: string;
       bytes: Uint8Array;
       sha256: string;
+      /*
+        Returned by `render`, not computed here: it is the value PRINTED
+        on the page, so the row has to record exactly what the renderer
+        put on the document. Deriving it a second time in the repository
+        would let the two drift and nobody would notice until a holder's
+        code failed to resolve.
+      */
+      contentHash: string;
       signature: string;
       algo: string;
       keyId: string;
@@ -151,9 +161,9 @@ export class PgDocumentsRepository {
         `insert into documents.documents
            (type, series, year, seq, number, subject_type, subject_id,
             issued_to_account_id, issued_by_account_id, supplier_id,
-            bucket, path, byte_size, sha256, signature, algo, key_id,
+            bucket, path, byte_size, sha256, content_hash, signature, algo, key_id,
             signature_format, prev_sha256, payload_snapshot, issued_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
          returning ${COLUMNS}`,
         [
           input.type, input.series, input.year, seq, number,
@@ -161,6 +171,7 @@ export class PgDocumentsRepository {
           input.issuedToAccountId ?? null, input.issuedByAccountId ?? null,
           input.supplierId ?? null,
           sealed.bucket, sealed.path, sealed.bytes.byteLength, sealed.sha256,
+          sealed.contentHash,
           sealed.signature, sealed.algo, sealed.keyId, sealed.format,
           prevSha256, JSON.stringify(input.payload), issuedAt,
         ],
@@ -180,6 +191,7 @@ export class PgDocumentsRepository {
             subjectId: row.subject_id,
             issuedToAccountId: row.issued_to_account_id,
             sha256: row.sha256,
+            contentHash: row.content_hash,
             issuedAt: row.issued_at.toISOString(),
           },
         }),
@@ -200,6 +212,25 @@ export class PgDocumentsRepository {
     const res = await this.pool.query<DocumentRow>(
       `select ${COLUMNS} from documents.documents where number = $1`,
       [number],
+    );
+    const row = res.rows[0];
+    return row
+      ? { ...toDTO(row), bucket: row.bucket, path: row.path, signature: row.signature }
+      : null;
+  }
+
+  /**
+   * Look a document up by the hash printed on it.
+   *
+   * One indexed equality on a unique column. The index is what makes
+   * "no two documents answer to one hash" true rather than intended.
+   */
+  async byContentHash(
+    contentHash: string,
+  ): Promise<(DocumentDTO & { bucket: string; path: string; signature: string }) | null> {
+    const res = await this.pool.query<DocumentRow>(
+      `select ${COLUMNS} from documents.documents where content_hash = $1`,
+      [contentHash],
     );
     const row = res.rows[0];
     return row

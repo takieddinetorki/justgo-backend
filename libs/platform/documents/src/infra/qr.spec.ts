@@ -3,7 +3,9 @@ import { drawQrCode } from './qr';
 import { renderInvoice } from './invoice-renderer';
 import { renderDocument } from './pdf-renderer';
 
-const VERIFY_URL = 'http://168.231.87.48:3100/v1/documents/verify/FA-2026-000042';
+const HASH = 'a'.repeat(64);
+const VERIFY_BASE = 'http://168.231.87.48:3100/v1/documents/verify';
+const VERIFY_URL = `${VERIFY_BASE}/${HASH}`;
 
 /*
   The REAL implementation, wrapped so the calls can be counted. Mocking it
@@ -77,13 +79,13 @@ function rasterize(rects: Rect[], box: { x: number; y: number; size: number }, p
 }
 
 describe('verification QR', () => {
-  const box = { x: 469, y: 46, size: 76 };
+  const box = { x: 449, y: 46, size: 96 };
 
   it('draws something an ordinary QR decoder can read', () => {
     const { rects, page } = recordingPage();
     drawQrCode(page, { text: VERIFY_URL, ...box });
 
-    const { data, side } = rasterize(rects, box, 8);
+    const { data, side } = rasterize(rects, box, 12);
     const found = jsQR(data, side, side);
     expect(found?.data).toBe(VERIFY_URL);
   });
@@ -108,9 +110,14 @@ describe('verification QR', () => {
     const { rects, page } = recordingPage();
     drawQrCode(page, { text: VERIFY_URL, ...box });
     const dark = rects.slice(1);
-    // A version-3 code is ~500 dark modules; merged, it is far fewer.
-    expect(dark.length).toBeGreaterThan(50);
-    expect(dark.length).toBeLessThan(400);
+    /*
+      The URL with a 64-character hash is a 45x45 symbol, so ~1000 dark
+      modules. Merged into horizontal runs it is comfortably under half
+      that — which is the point of merging, and what keeps the page a
+      couple of kilobytes rather than ten.
+    */
+    expect(dark.length).toBeGreaterThan(100);
+    expect(dark.length).toBeLessThan(45 * 45 / 2);
   });
 
   /*
@@ -139,10 +146,12 @@ describe('verification QR', () => {
       buyer: { name: 'Client Test', nif: null },
       lines: [{ description: 'Pièce', quantity: 1, unitTtcMinor: 100000 }],
       tvaRatePercent: 19,
+      contentHash: HASH,
       verifyUrl: VERIFY_URL,
+      verifyBaseUrl: VERIFY_BASE,
     });
     expect(drawn).toHaveBeenCalledTimes(1);
-    expect(drawn.mock.calls[0][1]).toEqual({ text: VERIFY_URL, x: 469, y: 46, size: 76 });
+    expect(drawn.mock.calls[0][1]).toEqual({ text: VERIFY_URL, x: 449, y: 46, size: 96 });
   });
 
   it('is on every other document type too', async () => {
@@ -151,7 +160,9 @@ describe('verification QR', () => {
       number: 'RC-2026-000007',
       issuedAt: new Date('2026-11-09T10:00:00Z'),
       payload: { service: 'Vidange' },
+      contentHash: HASH,
       verifyUrl: VERIFY_URL,
+      verifyBaseUrl: VERIFY_BASE,
     });
     expect(drawn).toHaveBeenCalledTimes(1);
     expect(drawn.mock.calls[0][1].text).toBe(VERIFY_URL);
@@ -168,7 +179,9 @@ describe('verification QR', () => {
       number: 'RC-2026-000007',
       issuedAt: new Date('2026-11-09T10:00:00Z'),
       payload: { service: 'Vidange' },
+      contentHash: HASH,
       verifyUrl: VERIFY_URL,
+      verifyBaseUrl: VERIFY_BASE,
     };
     const a = await renderDocument(args);
     const b = await renderDocument(args);

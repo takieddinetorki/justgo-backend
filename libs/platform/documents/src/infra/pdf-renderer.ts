@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import type { DocumentType } from '../contract/dto';
 import { drawQrCode } from './qr';
+import { groupContentHash } from '../domain/content-hash';
 
 /**
  * Renders the PDF that gets sealed.
@@ -25,6 +26,17 @@ export interface RenderInput {
   payload: Record<string, unknown>;
   /** Printed under the number so a holder can check it themselves. */
   verifyUrl: string;
+  /**
+   * The document's content hash, printed in full and encoded in the QR.
+   * This is the value the verification endpoint resolves.
+   */
+  contentHash: string;
+  /**
+   * Where to type the hash by hand — the verification page without the
+   * hash on the end. Printed because the full `verifyUrl` is now over a
+   * hundred characters and nobody is typing that off a page.
+   */
+  verifyBaseUrl: string;
 }
 
 const TITLES: Record<DocumentType, string> = {
@@ -65,6 +77,12 @@ export async function renderDocument(input: RenderInput): Promise<Uint8Array> {
   const page = doc.addPage([595.28, 841.89]); // A4
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  /*
+    Courier for the hash. A proportional font makes 0 and O, and 1 and l,
+    hard to tell apart, and this is a string somebody has to read off
+    paper and type in correctly.
+  */
+  const mono = await doc.embedFont(StandardFonts.Courier);
 
   const ink = rgb(0.1, 0.1, 0.1);
   const muted = rgb(0.45, 0.45, 0.45);
@@ -86,9 +104,14 @@ export async function renderDocument(input: RenderInput): Promise<Uint8Array> {
   y -= 28;
 
   for (const [label, value] of asLines(input.payload)) {
-    // Stops above the footer band: the QR now reaches y=122, and a table
-    // row printed over a QR costs the document its verification path.
-    if (y < 140) break; // one page; overflow is a renderer concern, not a seal one
+    /*
+      Stops above the footer band. The QR reaches y=142 — it got bigger
+      when it started carrying a 64-character hash instead of a document
+      number, because the same box at that density gives modules too
+      small to scan off paper — and the printed hash sits at y=88..119.
+      A table row over either costs the document its verification path.
+    */
+    if (y < 160) break; // one page; overflow is a renderer concern, not a seal one
     page.drawText(label, { x: 50, y, size: 9, font, color: muted });
     page.drawText(value.slice(0, 70), { x: 200, y, size: 10, font, color: ink });
     y -= 18;
@@ -101,12 +124,16 @@ export async function renderDocument(input: RenderInput): Promise<Uint8Array> {
     text is not redundant: it is what works when the code is creased,
     photocopied, or read by somebody without a camera.
   */
-  drawQrCode(page, { text: input.verifyUrl, x: 469, y: 46, size: 76 });
-  page.drawText('Vérifier ce document :', { x: 50, y: 90, size: 8, font, color: muted });
-  page.drawText(input.verifyUrl, { x: 50, y: 76, size: 8, font, color: ink });
+  drawQrCode(page, { text: input.verifyUrl, x: 449, y: 46, size: 96 });
+  const [hashTop, hashBottom] = groupContentHash(input.contentHash);
+  page.drawText('EMPREINTE DU DOCUMENT (SHA-256)', { x: 50, y: 112, size: 7, font: bold, color: muted });
+  page.drawText(hashTop, { x: 50, y: 99, size: 8, font: mono, color: ink });
+  page.drawText(hashBottom, { x: 50, y: 88, size: 8, font: mono, color: ink });
+  page.drawText('Scannez le code, ou saisissez cette empreinte sur :', { x: 50, y: 72, size: 7, font, color: muted });
+  page.drawText(input.verifyBaseUrl, { x: 50, y: 61, size: 8, font, color: ink });
   page.drawText(
     'Ce document est scellé cryptographiquement. Toute modification invalide le sceau.',
-    { x: 50, y: 56, size: 7, font, color: muted },
+    { x: 50, y: 48, size: 7, font, color: muted },
   );
 
   doc.setTitle(`${TITLES[input.type]} ${input.number}`);

@@ -783,7 +783,17 @@ function schemas(): Record<string, unknown> {
         issuedToAccountId: { type: 'string', format: 'uuid', nullable: true },
         supplierId: { type: 'string', format: 'uuid', nullable: true },
         status: { type: 'string', enum: ['issued', 'void'] },
-        sha256: { type: 'string', description: 'Hex digest of the stored bytes.' },
+        sha256: {
+          type: 'string',
+          description:
+            'Hex digest of the stored PDF bytes. NOT the value printed on the document — a file hash cannot appear inside the file it describes. Use it with POST /v1/documents/verify/{fingerprint} to check a copy you hold.',
+        },
+        contentHash: {
+          type: 'string',
+          nullable: true,
+          description:
+            'The fingerprint PRINTED on the document and carried by its QR: SHA-256 over the content (number, type, issue instant, chain position, payload). Unique per document, enforced by a unique index, so two documents that say exactly the same thing still differ. This is the key the verify endpoints resolve. null only on documents issued before 2026-11-09, which carry their number instead.',
+        },
         algo: { type: 'string', example: 'ed25519' },
         keyId: { type: 'string', example: 'k1' },
         signatureFormat: { type: 'string', enum: ['detached', 'embedded'] },
@@ -2414,19 +2424,19 @@ function enrich(doc: OpenAPIObject): void {
     security: [],
     responses: { ...ok(ref('PublicKeys')), ...errors() },
   });
-  set('/v1/documents/verify/{number}', 'get', {
+  set('/v1/documents/verify/{fingerprint}', 'get', {
     tags: ['Documents'],
-    summary: 'Verify by number',
+    summary: 'Verify by the fingerprint on the document',
     description:
-      'Open to the world — this is the QR target printed on every document. Returns status and authenticity only: no amounts and no parties, because document numbers are guessable.',
+      "Open to the world — this is what the QR on every document opens. `fingerprint` is the document's `contentHash`: the 64-character SHA-256 printed on the page. Separators and case are ignored, so the value can be typed straight out of the groups it is printed in. A document NUMBER is accepted on the same path, for documents issued before fingerprints existed and for anyone who only has the reference. Returns status and authenticity only — no amounts and no parties — because numbers are guessable.",
     security: [],
     responses: { ...ok(ref('VerificationResult')), ...errors() },
   });
-  set('/v1/documents/verify/{number}', 'post', {
+  set('/v1/documents/verify/{fingerprint}', 'post', {
     tags: ['Documents'],
     summary: 'Verify a file you hold',
     description:
-      'The stronger check: send the bytes YOU have and we compare them against what we sealed. Proves your copy is the real one instead of asking you to trust our screen.',
+      'The stronger check: send the bytes YOU have and we compare them against what we sealed. Proves your copy is the real one instead of asking you to trust our screen. `fingerprint` is the printed content hash, or the document number.',
     security: [],
     requestBody: body({
       type: 'object',

@@ -20,7 +20,23 @@ export interface DocumentDTO {
   issuedToAccountId: AccountId | null;
   supplierId: SupplierId | null;
   status: DocumentStatus;
+  /** SHA-256 over the exact stored PDF bytes. Not printable — see below. */
   sha256: string;
+  /**
+   * The hash PRINTED on the document and carried by its QR, over the
+   * document's content rather than over the rendered file: number, type,
+   * issue instant, chain position and the payload it was rendered from.
+   *
+   * A file hash cannot appear inside the file it describes — printing it
+   * would change the bytes it was taken over. This one is computable
+   * before the PDF exists, and is just as sensitive to the content: one
+   * comma in a line description changes it completely.
+   *
+   * Unique per document, enforced by a unique index, so two invoices
+   * that say exactly the same thing still differ. null only on documents
+   * issued before 2026-11-09, which carry their number in their QR.
+   */
+  contentHash: string | null;
   algo: string;
   keyId: string;
   signatureFormat: 'detached' | 'embedded';

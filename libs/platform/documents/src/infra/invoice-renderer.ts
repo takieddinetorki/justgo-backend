@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { drawQrCode } from './qr';
+import { groupContentHash } from '../domain/content-hash';
 import { breakdownFromTtc, formatMoney } from '../application/tax';
 
 /**
@@ -48,6 +49,17 @@ export interface InvoiceRenderInput {
   lines: InvoiceLine[];
   tvaRatePercent: number;
   verifyUrl: string;
+  /**
+   * The facture's content hash, printed in full and encoded in the QR.
+   * This is the value the verification endpoint resolves.
+   */
+  contentHash: string;
+  /**
+   * Where to type the hash by hand — the verification page without the
+   * hash on the end. Printed because the full `verifyUrl` is now over a
+   * hundred characters and nobody is typing that off a page.
+   */
+  verifyBaseUrl: string;
   /** Printed when the document has been annulled. */
   voidedNotice?: string | null;
 }
@@ -57,6 +69,8 @@ export async function renderInvoice(input: InvoiceRenderInput): Promise<Uint8Arr
   const page = doc.addPage([595.28, 841.89]); // A4
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  // Courier for the hash: 0/O and 1/l have to be distinguishable on paper.
+  const mono = await doc.embedFont(StandardFonts.Courier);
 
   const ink = rgb(0.1, 0.1, 0.1);
   const muted = rgb(0.45, 0.45, 0.45);
@@ -125,7 +139,7 @@ export async function renderInvoice(input: InvoiceRenderInput): Promise<Uint8Arr
     the arithmetic on the page is never wrong — but a line that was not
     printed is said so, out loud, rather than disappearing.
   */
-  const TABLE_FLOOR = 210;
+  const TABLE_FLOOR = 215;
   let ttcTotal = 0;
   let drawn = 0;
   for (const l of input.lines) {
@@ -177,13 +191,17 @@ export async function renderInvoice(input: InvoiceRenderInput): Promise<Uint8Arr
     scan is what anybody actually does, and the printed URL is what still
     works on a creased or photocopied page.
   */
-  drawQrCode(page, { text: input.verifyUrl, x: 469, y: 46, size: 76 });
-  text('Vérifier cette facture :', 50, 92, 8, font, muted);
-  text(input.verifyUrl, 50, 78, 8);
+  drawQrCode(page, { text: input.verifyUrl, x: 449, y: 46, size: 96 });
+  const [hashTop, hashBottom] = groupContentHash(input.contentHash);
+  text('EMPREINTE DE LA FACTURE (SHA-256)', 50, 112, 7, bold, muted);
+  text(hashTop, 50, 99, 8, mono);
+  text(hashBottom, 50, 88, 8, mono);
+  text('Scannez le code, ou saisissez cette empreinte sur :', 50, 72, 7, font, muted);
+  text(input.verifyBaseUrl, 50, 61, 8);
   text(
     'Document scellé cryptographiquement. Toute modification invalide le sceau.',
     50,
-    58,
+    48,
     7,
     font,
     muted,

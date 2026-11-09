@@ -1060,11 +1060,25 @@ not when a supplier edits their profile, not when a buyer closes their
 account, and not when the document is voided. That is what makes the stored
 hash meaningful.
 
-**Every document carries a verification QR**, bottom-right, pointing at
-`GET /v1/documents/verify/{number}`. It is drawn into the sealed bytes, so it
-is part of what the signature covers. The same URL is printed beside it in
-text, for a creased page or a reader without a camera. You do not need to
-render a QR yourself anywhere.
+**Every document carries its own fingerprint**, printed in full and encoded
+in a QR, bottom-right. Both are drawn into the sealed bytes, so they are part
+of what the signature covers. You do not need to render a QR anywhere.
+
+`contentHash` is a SHA-256 over what the document *says* — its number, type,
+issue instant, place in the chain, and the exact payload it was rendered
+from. One comma changed in a line description gives a completely different
+digest, and **no two documents share one**, including two that say exactly
+the same thing: the number and the issue instant are part of the pre-image,
+and the column has a unique index.
+
+It is **not** the hash of the PDF file, and it cannot be: a file hash printed
+inside the file changes the bytes it was taken over. The file hash is
+`sha256`, and it has its own use — see the `POST` verify below.
+
+| | over | use it to |
+|---|---|---|
+| `contentHash` | the content | look the document up: scan the QR, or let someone type the printed value |
+| `sha256` | the stored bytes | check a file somebody hands you, by uploading it |
 
 **There is no endpoint that creates a document from a request body, and there
 will not be one.** A signature over content the client supplied would certify
@@ -1077,11 +1091,15 @@ it already trusts. Your job is to list, download and verify them.
 - **`GET /v1/documents/{id}/download`** → `{ url }`, a **short-lived** signed
   URL. The bucket is private; there is no permanent public link. Fetch the URL
   when the user taps, do not cache it.
-- **`GET /v1/documents/verify/{number}`** → `VerificationResult`. **Public.**
-  This is what the QR on the document opens, so anyone holding a paper copy
-  can check it. Returns status and authenticity only — no amounts, no
-  parties — because document numbers are guessable.
-- **`POST /v1/documents/verify/{number}`** body `{ "file":"<base64 pdf>" }` →
+- **`GET /v1/documents/verify/{fingerprint}`** → `VerificationResult`.
+  **Public.** This is what the QR opens, so anyone holding a paper copy can
+  check it. `fingerprint` is the document's `contentHash`; **separators and
+  case are ignored**, so you can pass what somebody typed off the page
+  (`6B89C31D C3D56279 …`) without cleaning it up first. A document **number**
+  works on the same path — use it for documents issued before 2026-11-09,
+  which have no fingerprint. Returns status and authenticity only — no
+  amounts, no parties — because numbers are guessable.
+- **`POST /v1/documents/verify/{fingerprint}`** body `{ "file":"<base64 pdf>" }` →
   `VerificationResult` with `matchesSuppliedFile`. The stronger check: it
   compares the bytes *the holder has* against the bytes we sealed, which
   proves their copy is the real one rather than asking them to trust our

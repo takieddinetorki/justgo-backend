@@ -27,7 +27,15 @@ import qrcode from 'qrcode-generator';
 const QUIET = 4;
 
 export interface QrBox {
-  /** What the scanner should open. */
+  /**
+   * What the scanner should open.
+   *
+   * Mind the LENGTH. Every extra character pushes the symbol to a higher
+   * version, and the box is fixed — so a longer URL means smaller
+   * modules, and below roughly half a millimetre a phone camera stops
+   * reading it off paper. The verify URL carrying a 64-character hash is
+   * already a 45x45 symbol; it needs ~96pt to stay scannable.
+   */
   text: string;
   /** Lower-left corner of the box, including its quiet zone. */
   x: number;

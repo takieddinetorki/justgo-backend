@@ -131,6 +131,24 @@ async function exchange(user, scope) {
   return user;
 }
 
+/**
+ * GET a verification, riding out the per-ADDRESS rate limit.
+ *
+ * The endpoint is anonymous, so the limiter keys on the address and
+ * everything else running from this host shares the bucket. A 429 here
+ * means the limiter works, not that verification is broken.
+ */
+async function verifyRetrying(fingerprint) {
+  let res = await call('GET', `/v1/documents/verify/${fingerprint}`);
+  for (let i = 0; res.status === 429 && i < 3; i += 1) {
+    const wait = Number(res.retryAfter ?? 60) * 1000;
+    console.log(`  ..    rate limited, waiting ${wait / 1000}s (the limiter is doing its job)`);
+    await new Promise((r) => setTimeout(r, wait + 1000));
+    res = await call('GET', `/v1/documents/verify/${fingerprint}`);
+  }
+  return res;
+}
+
 /** Poll until a condition holds — events travel outbox -> relay -> bus. */
 async function eventually(label, fn, { tries = 25, waitMs = 600 } = {}) {
   for (let i = 0; i < tries; i += 1) {
@@ -617,6 +635,45 @@ async function main() {
       check('public verification says authentic',
         verify.data?.authentic === true && verify.data?.status === 'issued',
         `authentic ${verify.data?.authentic} status ${verify.data?.status}`);
+
+      /*
+        THE FINGERPRINT ON THE PAGE. The document carries a SHA-256 over
+        its own content, printed in full and encoded in the QR, and that
+        is the value verification resolves. Checked here rather than only
+        in a unit test because the thing that matters is that the hash a
+        holder reads off paper reaches a real record.
+      */
+      check('the facture carries a content fingerprint',
+        /^[0-9a-f]{64}$/.test(invoice.contentHash ?? ''),
+        `${invoice.contentHash?.slice(0, 16)}…`);
+
+      if (invoice.contentHash) {
+        const byHash = await verifyRetrying(invoice.contentHash);
+        check('and verification resolves it',
+          byHash.data?.found === true && byHash.data?.authentic === true,
+          `found ${byHash.data?.found} authentic ${byHash.data?.authentic}`);
+        check('…naming the same document the number does',
+          byHash.data?.number === invoice.number,
+          `${byHash.data?.number} vs ${invoice.number}`);
+
+        /*
+          Typed off the page, not pasted: the hash is printed in eight
+          groups of eight, and somebody reading it aloud will produce
+          spaces and may use capitals.
+          */
+        const groups = invoice.contentHash.toUpperCase().match(/.{1,8}/g).join(' ');
+        const typed = await verifyRetrying(encodeURIComponent(groups));
+        check('a fingerprint typed in its printed groups also resolves',
+          typed.data?.found === true && typed.data?.number === invoice.number,
+          `found ${typed.data?.found}`);
+
+        // One character off is a different document, and there is no such one.
+        const wrong = invoice.contentHash.slice(0, 63) + (invoice.contentHash.endsWith('0') ? '1' : '0');
+        const miss = await verifyRetrying(wrong);
+        check('a fingerprint that is one character off finds nothing',
+          miss.data?.found === false,
+          `found ${miss.data?.found}`);
+      }
 
       const download = await call('GET', `/v1/documents/${invoice.id}/download`, {
         token: client.token,

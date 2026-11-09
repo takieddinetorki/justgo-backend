@@ -20,6 +20,10 @@ import { PgDocumentsRepository } from '../infra/pg-documents.repository';
 import { Ed25519DocumentSigner, sha256Hex } from '../infra/ed25519-signer';
 import { renderDocument } from '../infra/pdf-renderer';
 import { renderInvoice } from '../infra/invoice-renderer';
+import {
+  documentContentHash,
+  normaliseContentHash,
+} from '../domain/content-hash';
 import { TVA_STANDARD } from './tax';
 
 export const DOCUMENTS_REPOSITORY = Symbol('DOCUMENTS_REPOSITORY');
@@ -88,13 +92,28 @@ export class DocumentsService implements DocumentsPort {
         failure anywhere here rolls the number back rather than burning it.
         A fiscal series may not have gaps.
       */
-      render: async ({ number, issuedAt }) => {
+      render: async ({ number, prevSha256, issuedAt }) => {
+        /*
+          The hash is computed BEFORE the PDF, because it goes ON the PDF.
+          That is the whole reason it is taken over the content rather
+          than over the file: a file hash printed inside the file changes
+          the file it describes.
+        */
+        const contentHash = documentContentHash({
+          number,
+          type: input.type,
+          issuedAt,
+          prevSha256,
+          payload: input.payload,
+        });
         const pdf = await renderDocument({
           type: input.type,
           number,
           issuedAt,
           payload: input.payload,
-          verifyUrl: `${this.config.verifyBaseUrl}/${number}`,
+          contentHash,
+          verifyUrl: `${this.config.verifyBaseUrl}/${contentHash}`,
+          verifyBaseUrl: this.config.verifyBaseUrl,
         });
 
         const sealed = await this.signer.seal(pdf);
@@ -115,6 +134,7 @@ export class DocumentsService implements DocumentsPort {
           path,
           bytes: sealed.bytes,
           sha256: sha256Hex(sealed.bytes),
+          contentHash,
           signature: sealed.signature ?? '',
           algo: sealed.algo,
           keyId: sealed.keyId,
@@ -159,7 +179,16 @@ export class DocumentsService implements DocumentsPort {
       // Frozen: the seller's identifiers and the prices as they stood on
       // the day. An invoice must not change when a profile is edited.
       payload: { ...input, tvaRatePercent: rate },
-      render: async ({ number, issuedAt }) => {
+      render: async ({ number, prevSha256, issuedAt }) => {
+        // Over the frozen payload, so the printed hash covers exactly what
+        // the facture says — including every line description and price.
+        const contentHash = documentContentHash({
+          number,
+          type: 'invoice',
+          issuedAt,
+          prevSha256,
+          payload: { ...input, tvaRatePercent: rate },
+        });
         const pdf = await renderInvoice({
           number,
           issuedAt,
@@ -168,7 +197,9 @@ export class DocumentsService implements DocumentsPort {
           buyer: { name: input.buyerName, nif: input.buyerNif ?? null },
           lines: input.lines,
           tvaRatePercent: rate,
-          verifyUrl: `${this.config.verifyBaseUrl}/${number}`,
+          contentHash,
+          verifyUrl: `${this.config.verifyBaseUrl}/${contentHash}`,
+          verifyBaseUrl: this.config.verifyBaseUrl,
         });
         const sealed = await this.signer.seal(pdf);
         const path = `invoice/${issuedAt.getFullYear()}/${number}.pdf`;
@@ -183,6 +214,7 @@ export class DocumentsService implements DocumentsPort {
           path,
           bytes: sealed.bytes,
           sha256: sha256Hex(sealed.bytes),
+          contentHash,
           signature: sealed.signature ?? '',
           algo: sealed.algo,
           keyId: sealed.keyId,
@@ -219,14 +251,33 @@ export class DocumentsService implements DocumentsPort {
    *
    * Deliberately returns NO contents — no amounts, no parties beyond the
    * issuer. Document numbers are guessable and this endpoint is public.
+   *
+   * ACCEPTS EITHER the content hash printed on the document — what its QR
+   * carries, and what somebody types off the page — or the document
+   * number. One route for both because they identify the same thing and
+   * the answer is identical; a hash is simply the better key, being
+   * unguessable and unique even between two documents that say the same
+   * thing. Documents issued before content hashes existed have only a
+   * number, and keep resolving by it.
    */
-  async verifyByNumber(number: string, suppliedFile?: Uint8Array): Promise<VerificationResult> {
-    const doc = await this.repo.byNumber(number);
+  async verifyByNumber(
+    numberOrHash: string,
+    suppliedFile?: Uint8Array,
+  ): Promise<VerificationResult> {
+    /*
+      Tolerant about how the hash arrives: scanned, pasted, or typed in
+      the spaced groups it is printed in. Anything that is not a 64-hex
+      digest is treated as a document number.
+    */
+    const hash = normaliseContentHash(numberOrHash);
+    const doc = hash ? await this.repo.byContentHash(hash) : await this.repo.byNumber(numberOrHash);
     if (!doc) {
       return {
         found: false,
         authentic: false,
-        message: 'No document with that number was ever issued by JustGo.',
+        message: hash
+          ? 'No document with that fingerprint was ever issued by JustGo.'
+          : 'No document with that number was ever issued by JustGo.',
       };
     }
 
