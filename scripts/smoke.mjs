@@ -671,8 +671,50 @@ async function main() {
         const wrong = invoice.contentHash.slice(0, 63) + (invoice.contentHash.endsWith('0') ? '1' : '0');
         const miss = await verifyRetrying(wrong);
         check('a fingerprint that is one character off finds nothing',
-          miss.data?.found === false,
-          `found ${miss.data?.found}`);
+          miss.data?.found === false && miss.data?.verdict === 'not_found',
+          `found ${miss.data?.found} verdict ${miss.data?.verdict}`);
+
+        /*
+          THE COPIED-CODE ATTACK, which is the one that matters.
+
+          Nothing stops a forger lifting a valid fingerprint off a 6 000
+          DZD facture and printing it on a page that says 10 000 - they
+          own the printer, and the code is just ink. So a scan with no
+          file supplied must NOT answer "authentic and unaltered", which
+          it did, and which read back to the scanner as confirmation of
+          the forgery. It has to say only what it knows, and show the
+          real figures so the holder can compare them with the paper.
+        */
+        check('a scan with no file does not claim the holder copy is unaltered',
+          byHash.data?.verdict === 'exists_unchecked' &&
+            !/unaltered/i.test(byHash.data?.message ?? ''),
+          `verdict ${byHash.data?.verdict}`);
+        check('...and says so in as many words',
+          /does NOT confirm the copy you hold/i.test(byHash.data?.message ?? ''),
+          `${(byHash.data?.message ?? '').slice(0, 56)}...`);
+        check('...and returns the real total, to compare against the paper',
+          typeof byHash.data?.content?.totalMinor === 'number' &&
+            byHash.data.content.totalMinor > 0 &&
+            Boolean(byHash.data.content.issuedOn),
+          `${byHash.data?.content?.totalMinor} ${byHash.data?.content?.currency} on ${byHash.data?.content?.issuedOn}`);
+
+        /*
+          The figures must NOT come back for a document NUMBER. Numbers
+          are sequential, so content against one would let anybody walk a
+          business's turnover one request at a time.
+        */
+        const byNumber = await verifyRetrying(invoice.number);
+        check('but a NUMBER lookup discloses no figures',
+          byNumber.data?.found === true && byNumber.data?.content === undefined,
+          `content ${JSON.stringify(byNumber.data?.content)}`);
+
+        // Only an uploaded file earns the unqualified pass.
+        const notIt = await call('POST', `/v1/documents/verify/${invoice.contentHash}`, {
+          body: { file: Buffer.from('not a facture').toString('base64') },
+        });
+        check('a file that is not the document is file_altered, never a pass',
+          notIt.data?.verdict === 'file_altered' && notIt.data?.matchesSuppliedFile === false,
+          `verdict ${notIt.data?.verdict}`);
       }
 
       const download = await call('GET', `/v1/documents/${invoice.id}/download`, {

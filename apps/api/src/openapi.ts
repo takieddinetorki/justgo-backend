@@ -806,16 +806,42 @@ function schemas(): Record<string, unknown> {
     VerificationResult: {
       type: 'object',
       description:
-        'AUTHENTICITY AND VALIDITY ARE SEPARATE. A voided document is still authentic — we really did issue it — but it is no longer valid. message states both in one sentence.',
+        'RENDER `verdict`, OR `message`. Do not render `authentic` on its own: it describes OUR sealed copy, not the caller page, so a fingerprint copied onto a forged page returns authentic=true and a UI showing only that boolean puts a tick on a forgery. Authenticity and validity are also separate - a voided document is still authentic, it simply no longer stands.',
       properties: {
         found: { type: 'boolean' },
+        verdict: {
+          type: 'string',
+          enum: [
+            'not_found',
+            'compromised',
+            'file_matches',
+            'file_altered',
+            'exists_unchecked',
+            'void',
+          ],
+          description:
+            'The single answer, decided server-side. `file_matches` is the only unqualified pass. `exists_unchecked` means a real document has that fingerprint and nothing was supplied to compare against it - show the `content` block and ask the holder to compare, or to upload their file. `compromised` is our problem, not the holder one.',
+        },
         authentic: {
           type: 'boolean',
-          description: 'The signature over the stored bytes verifies against a published key.',
+          description:
+            'OUR stored bytes are intact and their signature verifies. Says nothing about the caller document.',
         },
         matchesSuppliedFile: {
           type: 'boolean',
           description: 'Present only when a file was uploaded: whether its bytes are identical.',
+        },
+        content: {
+          type: 'object',
+          description:
+            'What the genuine document SAYS, returned only on a fingerprint lookup (never against a document number, which is sequential and would let anyone walk a business turnover). This is the defence against a copied code: show these figures next to the paper, and a page whose total disagrees is not this document.',
+          properties: {
+            totalMinor: { type: 'integer', nullable: true, example: 600000 },
+            currency: { type: 'string', nullable: true, example: 'DZD' },
+            issuedOn: { type: 'string', example: '2026-11-09' },
+            issuer: { type: 'string', nullable: true, example: 'SARL Pieces Auto Alger' },
+            lineCount: { type: 'integer', nullable: true, example: 3 },
+          },
         },
         number: { type: 'string', example: 'FA-2026-000001' },
         type: { type: 'string' },

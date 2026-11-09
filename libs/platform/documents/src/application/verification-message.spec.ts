@@ -1,56 +1,121 @@
-import { describe as describeResult } from './documents.service';
+import { decide, describe as describeResult } from './documents.service';
 import type { VerificationResult } from '../contract/dto';
 
-const base: VerificationResult = {
-  found: true,
-  authentic: true,
-  number: 'RES-2026-000001',
-  type: 'reservation_confirmation',
-  status: 'issued',
-  issuedAt: '2026-10-12T10:00:00.000Z',
-  voidedAt: null,
-  voidReason: null,
-  message: '',
+/** Runs a result through the real pipeline: verdict first, then wording. */
+function answer(partial: Partial<VerificationResult>): VerificationResult {
+  const r: VerificationResult = {
+    found: true,
+    authentic: true,
+    verdict: 'exists_unchecked',
+    number: 'FA-2026-000014',
+    type: 'invoice',
+    status: 'issued',
+    issuedAt: '2026-11-09T16:27:24.844Z',
+    voidedAt: null,
+    voidReason: null,
+    message: '',
+    ...partial,
+  };
+  r.verdict = decide(r);
+  r.message = describeResult(r);
+  return r;
+}
+
+const WITH_CONTENT = {
+  content: {
+    totalMinor: 600000,
+    currency: 'DZD',
+    issuedOn: '2026-11-09',
+    issuer: 'SARL Pieces Auto Alger',
+    lineCount: 3,
+  },
 };
 
 /**
  * The sentence a human holding a printout reads. It has to keep
  * AUTHENTICITY and VALIDITY apart — a voided invoice is still genuinely
- * ours, it simply no longer stands, and saying "invalid" for both would
- * make a real document look forged.
+ * ours, it simply no longer stands — and it must never claim anything
+ * about a page nobody checked.
  */
 describe('verification message', () => {
-  it('confirms an authentic, standing document', () => {
-    expect(describeResult(base)).toMatch(/authentic and valid/i);
+  /*
+    THE ATTACK THIS EXISTS FOR. Lift the fingerprint off a genuine 6 000
+    DZD facture, print a new page saying 10 000 DZD, keep the same code.
+    The lookup finds a real document and our sealed copy IS intact — so
+    the old wording, "Authentic and valid: issued by JustGo and
+    unaltered", came back and confirmed the forgery to whoever scanned
+    it. Nothing cryptographic can prevent the copy; the answer has to
+    stop claiming what it does not know, and has to print the real
+    figures so the holder can see 6 000 against 10 000.
+  */
+  it('never claims the holder copy is unaltered when nothing was supplied', () => {
+    const r = answer(WITH_CONTENT);
+    expect(r.verdict).toBe('exists_unchecked');
+    expect(r.message).not.toMatch(/unaltered/i);
+    expect(r.message).toMatch(/does NOT confirm the copy you hold/i);
+    expect(r.message).toMatch(/anyone can print a fingerprint onto any page/i);
+  });
+
+  it('prints the real figures so a copied code can be caught by eye', () => {
+    const r = answer(WITH_CONTENT);
+    expect(r.message).toMatch(/6000\.00 DZD/);
+    expect(r.message).toMatch(/2026-11-09/);
+    expect(r.message).toMatch(/SARL Pieces Auto Alger/);
+    expect(r.message).toMatch(/3 line\(s\)/);
+    expect(r.message).toMatch(/CHECK THOSE AGAINST YOUR COPY/);
+  });
+
+  it('is the strongest answer only when a file was supplied and matched', () => {
+    const r = answer({ matchesSuppliedFile: true });
+    expect(r.verdict).toBe('file_matches');
+    expect(r.message).toMatch(/exactly the file JustGo issued/i);
+  });
+
+  it('distinguishes an altered copy from no such document', () => {
+    const altered = answer({ matchesSuppliedFile: false });
+    expect(altered.verdict).toBe('file_altered');
+    expect(altered.message).toMatch(/your copy has been altered/i);
+
+    const missing = answer({ found: false, authentic: false });
+    expect(missing.verdict).toBe('not_found');
+    expect(missing.message).toMatch(/was ever issued by JustGo/i);
   });
 
   it('says a void document WAS genuinely issued', () => {
-    const msg = describeResult({
-      ...base,
+    const r = answer({
       status: 'void',
       voidedAt: '2026-11-01T09:00:00.000Z',
       voidReason: 'superseded',
+      matchesSuppliedFile: true,
     });
-    expect(msg).toMatch(/genuinely issued/i);
-    expect(msg).toMatch(/annulled/i);
-    expect(msg).toMatch(/2026-11-01/);
+    expect(r.verdict).toBe('void');
+    expect(r.message).toMatch(/genuinely issued/i);
+    expect(r.message).toMatch(/annulled/i);
+    expect(r.message).toMatch(/2026-11-01/);
     // Must NOT read as a forgery.
-    expect(msg).not.toMatch(/falsified/i);
+    expect(r.message).not.toMatch(/falsified|altered/i);
   });
 
-  it('calls a mismatched document falsified', () => {
-    expect(describeResult({ ...base, authentic: false })).toMatch(/falsified/i);
+  /*
+    Our own stored bytes failing their signature is a different thing
+    from a holder's copy being wrong, and it is OUR problem — so it says
+    so, instead of implying the holder forged something.
+  */
+  it('reports a compromised stored copy as ours, not the holder forgery', () => {
+    const r = answer({ authentic: false });
+    expect(r.verdict).toBe('compromised');
+    expect(r.message).toMatch(/our own sealed copy/i);
+    expect(r.message).toMatch(/report it/i);
   });
 
-  it('distinguishes "your copy is altered" from "no such document"', () => {
-    const altered = describeResult({ ...base, matchesSuppliedFile: false });
-    expect(altered).toMatch(/your copy has been altered/i);
-
-    const missing = describeResult({ found: false, authentic: false, message: '' });
-    expect(missing).toMatch(/never issued by JustGo|was ever issued/i);
-  });
-
-  it('reports an authentic match when the supplied file agrees', () => {
-    expect(describeResult({ ...base, matchesSuppliedFile: true })).toMatch(/authentic and valid/i);
+  /*
+    Against a document NUMBER there is no content block, because numbers
+    are sequential: disclosing figures would let anybody walk a
+    business's turnover. The answer is still honest about its limits.
+  */
+  it('omits the comparison when there is no content to compare', () => {
+    const r = answer({});
+    expect(r.message).not.toMatch(/CHECK THOSE AGAINST YOUR COPY/);
+    expect(r.message).toMatch(/does NOT confirm the copy you hold/i);
   });
 });

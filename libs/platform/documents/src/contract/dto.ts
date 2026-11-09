@@ -70,10 +70,66 @@ export interface IssueDocumentInput {
  * leads people to delete or regenerate files, destroying the audit trail
  * the system exists to provide.
  */
+/**
+ * What the genuine document SAYS, returned so a holder can compare it
+ * with the paper in their hand.
+ *
+ * THIS IS THE ONLY DEFENCE AGAINST A COPIED CODE. A fingerprint printed
+ * on paper proves that a document with that fingerprint exists — nothing
+ * more. Whoever prints the page chooses what else is on it, so they can
+ * lift a valid fingerprint off a 6 000 DZD facture and print it under a
+ * 10 000 DZD one, and a verifier that answers only "authentic" confirms
+ * the forgery. Returning the real figures is what turns the scan into a
+ * check: 6 000 on the screen against 10 000 on the paper, and the
+ * forgery is obvious to the person holding both.
+ *
+ * Returned ONLY when the lookup came from a fingerprint, never from a
+ * document number. Numbers are sequential and guessable, so disclosing
+ * content against one would let anybody walk a business's turnover.
+ * A 256-bit fingerprint is not guessable: presenting one means you are
+ * already holding the document, so the figures tell you nothing you
+ * could not read off the page.
+ */
+export interface VerifiedContent {
+  /** Total as issued, in integer minor units. */
+  totalMinor: number | null;
+  currency: string | null;
+  /** Date only — the time of day is noise for a visual comparison. */
+  issuedOn: string;
+  /** The issuing business, by legal name. Already public on the page. */
+  issuer: string | null;
+  /** How many lines the real document has, so an added line shows up. */
+  lineCount: number | null;
+}
+
+/** A single answer a client can render without deriving one itself. */
+export type VerificationVerdict =
+  /** No such document. */
+  | 'not_found'
+  /** Our own sealed copy fails its signature — our problem, and serious. */
+  | 'compromised'
+  /** A real document, and the file the caller sent is byte-for-byte it. */
+  | 'file_matches'
+  /** A real document, and the file the caller sent is NOT it. */
+  | 'file_altered'
+  /** A real document exists; nothing was supplied to check against it. */
+  | 'exists_unchecked'
+  /** A real document, but annulled. */
+  | 'void';
+
 export interface VerificationResult {
   found: boolean;
-  /** The signature checks out and the stored bytes are unaltered. */
+  /**
+   * OUR SEALED COPY is intact and its signature verifies.
+   *
+   * NOT a statement about the caller's document. A copied fingerprint on
+   * a forged page returns `authentic: true`, because the document it
+   * points at really is authentic — the page is not. Render `verdict`,
+   * or `message`; rendering this boolean alone puts a tick on forgeries.
+   */
   authentic: boolean;
+  /** The one field to branch on. */
+  verdict: VerificationVerdict;
   /** True only when the caller supplied a file and it matched. */
   matchesSuppliedFile?: boolean;
   number?: string;
@@ -82,6 +138,8 @@ export interface VerificationResult {
   issuedAt?: string;
   voidedAt?: string | null;
   voidReason?: string | null;
+  /** Present on a fingerprint lookup. Compare it with the paper. */
+  content?: VerifiedContent;
   /** Plain-language summary for a human holding a printout. */
   message: string;
 }

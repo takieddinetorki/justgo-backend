@@ -17,6 +17,7 @@ interface DocumentRow {
   byte_size: number;
   sha256: string;
   content_hash: string | null;
+  payload_snapshot?: Record<string, unknown>;
   signature: string;
   algo: string;
   key_id: string;
@@ -47,6 +48,26 @@ function toDTO(r: DocumentRow): DocumentDTO {
     voidedAt: r.voided_at ? r.voided_at.toISOString() : null,
     voidReason: r.void_reason,
   };
+}
+
+/** A document row with what verification needs beyond the public DTO. */
+export type SealedDocument = DocumentDTO & {
+  bucket: string;
+  path: string;
+  signature: string;
+  payloadSnapshot: Record<string, unknown>;
+};
+
+function toSealed(row: DocumentRow | undefined): SealedDocument | null {
+  return row
+    ? {
+        ...toDTO(row),
+        bucket: row.bucket,
+        path: row.path,
+        signature: row.signature,
+        payloadSnapshot: row.payload_snapshot ?? {},
+      }
+    : null;
 }
 
 const COLUMNS = `id, type, number, subject_type, subject_id, issued_to_account_id,
@@ -206,17 +227,17 @@ export class PgDocumentsRepository {
     }
   }
 
-  async byNumber(
-    number: string,
-  ): Promise<(DocumentDTO & { bucket: string; path: string; signature: string }) | null> {
+  /*
+    These two also pull `payload_snapshot`, which the list endpoints
+    deliberately do not: verification needs it to tell a holder what the
+    document SAYS, so they can compare it with the paper in their hand.
+  */
+  async byNumber(number: string): Promise<SealedDocument | null> {
     const res = await this.pool.query<DocumentRow>(
-      `select ${COLUMNS} from documents.documents where number = $1`,
+      `select ${COLUMNS}, payload_snapshot from documents.documents where number = $1`,
       [number],
     );
-    const row = res.rows[0];
-    return row
-      ? { ...toDTO(row), bucket: row.bucket, path: row.path, signature: row.signature }
-      : null;
+    return toSealed(res.rows[0]);
   }
 
   /**
@@ -225,17 +246,12 @@ export class PgDocumentsRepository {
    * One indexed equality on a unique column. The index is what makes
    * "no two documents answer to one hash" true rather than intended.
    */
-  async byContentHash(
-    contentHash: string,
-  ): Promise<(DocumentDTO & { bucket: string; path: string; signature: string }) | null> {
+  async byContentHash(contentHash: string): Promise<SealedDocument | null> {
     const res = await this.pool.query<DocumentRow>(
-      `select ${COLUMNS} from documents.documents where content_hash = $1`,
+      `select ${COLUMNS}, payload_snapshot from documents.documents where content_hash = $1`,
       [contentHash],
     );
-    const row = res.rows[0];
-    return row
-      ? { ...toDTO(row), bucket: row.bucket, path: row.path, signature: row.signature }
-      : null;
+    return toSealed(res.rows[0]);
   }
 
   async byId(

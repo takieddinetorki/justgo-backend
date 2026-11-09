@@ -14,6 +14,8 @@ import type {
   IssueDocumentInput,
   IssueInvoiceInput,
   VerificationResult,
+  VerificationVerdict,
+  VerifiedContent,
 } from '../contract/dto';
 import { DOCUMENT_SIGNER, type DocumentSigner } from '../contract/signer.port';
 import { PgDocumentsRepository } from '../infra/pg-documents.repository';
@@ -275,6 +277,7 @@ export class DocumentsService implements DocumentsPort {
       return {
         found: false,
         authentic: false,
+        verdict: 'not_found',
         message: hash
           ? 'No document with that fingerprint was ever issued by JustGo.'
           : 'No document with that number was ever issued by JustGo.',
@@ -297,6 +300,7 @@ export class DocumentsService implements DocumentsPort {
     const result: VerificationResult = {
       found: true,
       authentic,
+      verdict: 'exists_unchecked',
       number: doc.number,
       type: doc.type,
       status: doc.status,
@@ -310,6 +314,19 @@ export class DocumentsService implements DocumentsPort {
       result.matchesSuppliedFile = sha256Hex(suppliedFile) === doc.sha256;
     }
 
+    /*
+      The figures, but only to a caller who presented a FINGERPRINT.
+      That is what makes a scan able to catch a copied code: the screen
+      says what the real document says, and the holder compares it with
+      the paper. Against a document NUMBER we disclose nothing — numbers
+      are sequential, and content against one would let anybody walk a
+      business's turnover.
+    */
+    if (hash) {
+      result.content = summarise(doc);
+    }
+
+    result.verdict = decide(result);
     result.message = describe(result);
     return result;
   }
@@ -336,19 +353,98 @@ export class DocumentsService implements DocumentsPort {
   }
 }
 
-/** The sentence a human holding a printout actually needs. */
+/**
+ * What the genuine document says, for comparison against the paper.
+ *
+ * Reads the frozen payload rather than anything live, so the figures are
+ * the ones the document was issued with — which is the whole point.
+ */
+function summarise(doc: {
+  type: string;
+  issuedAt: string;
+  payloadSnapshot: Record<string, unknown>;
+}): VerifiedContent {
+  const p = doc.payloadSnapshot ?? {};
+  const lines = Array.isArray(p['lines']) ? (p['lines'] as Array<Record<string, unknown>>) : null;
+  /*
+    Recomputed from the lines, the same arithmetic the renderer used, so
+    the total shown is the total printed. Not read from a stored total:
+    there is no stored total, and inventing a column for one would be a
+    second source of truth for a figure the lines already determine.
+  */
+  const totalMinor = lines
+    ? lines.reduce((sum, l) => {
+        const unit = Number(l['unitTtcMinor'] ?? 0);
+        const qty = Number(l['quantity'] ?? 0);
+        return sum + (Number.isFinite(unit) && Number.isFinite(qty) ? unit * qty : 0);
+      }, 0)
+    : null;
+  const seller = p['seller'] as { legalName?: string } | undefined;
+  return {
+    totalMinor,
+    currency: typeof p['currency'] === 'string' ? (p['currency'] as string) : null,
+    issuedOn: doc.issuedAt.slice(0, 10),
+    issuer: typeof seller?.legalName === 'string' ? seller.legalName : null,
+    lineCount: lines ? lines.length : null,
+  };
+}
+
+/** One verdict, decided here so no client has to derive it. */
+export function decide(r: VerificationResult): VerificationVerdict {
+  if (!r.found) return 'not_found';
+  if (!r.authentic) return 'compromised';
+  if (r.matchesSuppliedFile === true) return r.status === 'void' ? 'void' : 'file_matches';
+  if (r.matchesSuppliedFile === false) return 'file_altered';
+  if (r.status === 'void') return 'void';
+  return 'exists_unchecked';
+}
+
+/**
+ * The sentence a human holding a printout actually needs.
+ *
+ * IT MUST NOT SAY THE HOLDER'S DOCUMENT IS UNALTERED when nothing was
+ * supplied to compare. It used to: a lookup with no file returned
+ * "Authentic and valid: issued by JustGo and unaltered", and a forger
+ * who copies a valid fingerprint onto a page showing a different amount
+ * gets that sentence read back to them as confirmation. All the server
+ * knows at that point is that a document with that fingerprint exists —
+ * so that is all it is allowed to say, together with what the real one
+ * says and how to finish the check.
+ */
 export function describe(r: VerificationResult): string {
-  if (!r.found) return 'No document with that number was ever issued by JustGo.';
-  if (!r.authentic) {
-    return 'WARNING: this document does not match what JustGo issued under that number. Treat it as falsified.';
+  switch (r.verdict) {
+    case 'not_found':
+      return 'No document with that reference was ever issued by JustGo.';
+    case 'compromised':
+      return 'WARNING: our own sealed copy of this document fails its signature. Do not rely on it; report it.';
+    case 'file_altered':
+      return 'A genuine document exists under this reference, but the file you supplied is NOT it. Your copy has been altered.';
+    case 'void': {
+      const on = (r.voidedAt ?? '').slice(0, 10);
+      return `This document was genuinely issued by JustGo but was annulled on ${on}. It is no longer valid.`;
+    }
+    case 'file_matches':
+      return 'Authentic and valid: this is exactly the file JustGo issued and sealed.';
+    case 'exists_unchecked':
+    default: {
+      const c = r.content;
+      const base =
+        `JustGo did issue a document with this fingerprint${r.number ? ` (${r.number})` : ''}` +
+        ` and our sealed copy is intact.`;
+      const compare = c
+        ? ` It is dated ${c.issuedOn}${c.issuer ? `, issued by ${c.issuer}` : ''}` +
+          (c.totalMinor !== null && c.currency
+            ? `, for a total of ${(c.totalMinor / 100).toFixed(2)} ${c.currency}`
+            : '') +
+          (c.lineCount !== null ? ` across ${c.lineCount} line(s)` : '') +
+          '. CHECK THOSE AGAINST YOUR COPY: if they differ, the paper you are holding is not this document.'
+        : '';
+      return (
+        `${base}${compare} This does NOT confirm the copy you hold — anyone can print a` +
+        ' fingerprint onto any page. Upload your PDF for a byte-for-byte check.'
+      );
+    }
   }
-  if (r.matchesSuppliedFile === false) {
-    return 'A genuine document exists under this number, but the file you supplied is NOT it. Your copy has been altered.';
-  }
-  if (r.status === 'void') {
-    return `This document was genuinely issued by JustGo but was annulled on ${(r.voidedAt ?? '').slice(0, 10)}. It is no longer valid.`;
-  }
-  return 'Authentic and valid: issued by JustGo and unaltered.';
 }
 
 export { Ed25519DocumentSigner };
