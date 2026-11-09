@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { drawQrCode } from './qr';
 import { breakdownFromTtc, formatMoney } from '../application/tax';
 
 /**
@@ -112,14 +113,42 @@ export async function renderInvoice(input: InvoiceRenderInput): Promise<Uint8Arr
   page.drawLine({ start: { x: 50, y }, end: { x: 545, y }, thickness: 0.7, color: line });
   y -= 16;
 
+  /*
+    One page, and the table has to stop while there is still room for the
+    totals and the footer below it. It had no bound at all: a long invoice
+    printed its amount column straight through the verification block, and
+    now that a QR sits at x=469..545 / y=46..122 — directly under the
+    MONTANT TTC column — an unbounded table would print over the code and
+    cost the document the only verification route anybody uses.
+
+    The TOTAL still covers every line, including the ones not drawn, so
+    the arithmetic on the page is never wrong — but a line that was not
+    printed is said so, out loud, rather than disappearing.
+  */
+  const TABLE_FLOOR = 210;
   let ttcTotal = 0;
+  let drawn = 0;
   for (const l of input.lines) {
     const lineTtc = l.unitTtcMinor * l.quantity;
     ttcTotal += lineTtc;
+    if (y < TABLE_FLOOR) continue;
     text(l.description.slice(0, 58), 50, y, 9);
     text(String(l.quantity), 330, y, 9);
     text(formatMoney(l.unitTtcMinor, input.currency), 390, y, 9);
     text(formatMoney(lineTtc, input.currency), 470, y, 9);
+    y -= 15;
+    drawn += 1;
+  }
+  const hidden = input.lines.length - drawn;
+  if (hidden > 0) {
+    text(
+      `… ${hidden} ligne(s) supplémentaire(s), comprises dans le total ci-dessous.`,
+      50,
+      y,
+      8,
+      font,
+      muted,
+    );
     y -= 15;
   }
 
@@ -143,6 +172,12 @@ export async function renderInvoice(input: InvoiceRenderInput): Promise<Uint8Arr
   }
 
   // ── Verification block ──────────────────────────────────────────
+  /*
+    The QR carries the same URL printed beside it. Both, not either: a
+    scan is what anybody actually does, and the printed URL is what still
+    works on a creased or photocopied page.
+  */
+  drawQrCode(page, { text: input.verifyUrl, x: 469, y: 46, size: 76 });
   text('Vérifier cette facture :', 50, 92, 8, font, muted);
   text(input.verifyUrl, 50, 78, 8);
   text(

@@ -1052,6 +1052,20 @@ Invoices, reservation confirmations and the rest, as **PDFs the server
 signed**. Every document is hashed (SHA-256) and signed (Ed25519) over its
 exact stored bytes, and kept in a private bucket unchanged.
 
+**Rendered once, at issue.** The PDF is produced inside the issuing
+transaction from a frozen payload snapshot, signed, and written to storage;
+the download endpoint hands out a signed URL to *that stored object*. Nothing
+is re-rendered on download, so a document cannot change after it is issued —
+not when a supplier edits their profile, not when a buyer closes their
+account, and not when the document is voided. That is what makes the stored
+hash meaningful.
+
+**Every document carries a verification QR**, bottom-right, pointing at
+`GET /v1/documents/verify/{number}`. It is drawn into the sealed bytes, so it
+is part of what the signature covers. The same URL is printed beside it in
+text, for a creased page or a reader without a camera. You do not need to
+render a QR yourself anywhere.
+
 **There is no endpoint that creates a document from a request body, and there
 will not be one.** A signature over content the client supplied would certify
 nothing — a supplier could mint a facture for any amount against any NIF and
@@ -1064,8 +1078,8 @@ it already trusts. Your job is to list, download and verify them.
   URL. The bucket is private; there is no permanent public link. Fetch the URL
   when the user taps, do not cache it.
 - **`GET /v1/documents/verify/{number}`** → `VerificationResult`. **Public.**
-  This is the QR target printed on every document, so anyone holding a paper
-  copy can check it. Returns status and authenticity only — no amounts, no
+  This is what the QR on the document opens, so anyone holding a paper copy
+  can check it. Returns status and authenticity only — no amounts, no
   parties — because document numbers are guessable.
 - **`POST /v1/documents/verify/{number}`** body `{ "file":"<base64 pdf>" }` →
   `VerificationResult` with `matchesSuppliedFile`. The stronger check: it

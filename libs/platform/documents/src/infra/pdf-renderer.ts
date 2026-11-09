@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import type { DocumentType } from '../contract/dto';
+import { drawQrCode } from './qr';
 
 /**
  * Renders the PDF that gets sealed.
@@ -85,14 +86,22 @@ export async function renderDocument(input: RenderInput): Promise<Uint8Array> {
   y -= 28;
 
   for (const [label, value] of asLines(input.payload)) {
-    if (y < 120) break; // one page; overflow is a renderer concern, not a seal one
+    // Stops above the footer band: the QR now reaches y=122, and a table
+    // row printed over a QR costs the document its verification path.
+    if (y < 140) break; // one page; overflow is a renderer concern, not a seal one
     page.drawText(label, { x: 50, y, size: 9, font, color: muted });
     page.drawText(value.slice(0, 70), { x: 200, y, size: 10, font, color: ink });
     y -= 18;
   }
 
-  // Verification block. A holder of the paper must be able to check it
-  // without trusting whoever handed it to them.
+  /*
+    Verification block. A holder of the paper must be able to check it
+    without trusting whoever handed it to them — so the QR goes on the
+    document itself, and the URL stays printed beside it in full. The
+    text is not redundant: it is what works when the code is creased,
+    photocopied, or read by somebody without a camera.
+  */
+  drawQrCode(page, { text: input.verifyUrl, x: 469, y: 46, size: 76 });
   page.drawText('Vérifier ce document :', { x: 50, y: 90, size: 8, font, color: muted });
   page.drawText(input.verifyUrl, { x: 50, y: 76, size: 8, font, color: ink });
   page.drawText(

@@ -11,6 +11,76 @@ the test suite — a distinction this project has earned the hard way.
 
 ---
 
+## 2026-11-09
+
+### Added
+
+- **The verification QR is now actually ON the documents.** Both renderers
+  printed the verify URL as text and drew no code, while the controller's own
+  comments described that URL as *"the QR target printed on every document"*.
+  A holder of the paper was expected to retype a sixty-character URL to check
+  the facture in their hand, which nobody does — so the public verification
+  endpoint existed and was never reached.
+
+  Drawn as vector rectangles rather than an embedded PNG: sharp at any zoom
+  and any printer resolution, about 1.8 KB on the page, and no image encoder
+  to behave differently inside the webpack bundle. Horizontal runs are merged
+  into single rectangles, and the symbol sits on a white card that includes
+  the four-module quiet zone — without it a scanner cannot find the finder
+  patterns, which fails in a way that is invisible on screen.
+
+  `qrcode-generator`, which has zero dependencies and picks its version and
+  mask by the specification's own rules, so the same URL always yields the
+  same modules and therefore the same page bytes. That matters: these bytes
+  are hashed and signed.
+
+  The printed URL stays, beside the code. Not redundant — it is what still
+  works on a creased or photocopied page, or for somebody without a camera.
+
+### Fixed
+
+- **A long facture printed its amount column through the verification block.**
+  The line loop had no lower bound at all, and the MONTANT TTC column sits at
+  x=470 — exactly where the QR now goes, so an unbounded table would have
+  printed over the code and cost the document its only practical verification
+  route. The table now stops above the footer, and any line it could not draw
+  is **stated on the page**; the total has always covered every line, so the
+  arithmetic shown is never wrong.
+
+### Confirmed, not changed
+
+The issuing pipeline was already **render once → seal → store → serve the
+stored object**, which is what it should be:
+
+1. `renderInvoice` / `renderDocument` produce the PDF inside the issuing
+   transaction, from a frozen payload snapshot.
+2. `signer.seal` signs those exact bytes (Ed25519, detached).
+3. `media.putObject` writes them to the private `documents` bucket, and the
+   row records bucket, path, sha256, signature, algo and keyId.
+4. `downloadUrl` returns a signed URL **to that stored object**. Nothing
+   re-renders on download.
+5. `verifyByNumber` re-reads the stored bytes and re-hashes them.
+6. Voiding writes a registry fact and never touches the bytes.
+
+So a document is immutable from the moment it is issued, and the QR is part
+of the sealed bytes rather than something added on the way out.
+
+### Verified
+
+`qr.spec.ts` rasterizes what the drawing code emits and decodes it with
+**jsQR** — a decoder that knows nothing about how the code was produced. It
+reads back the exact verify URL. Also asserted: the quiet-zone card, that
+runs are merged rather than one rectangle per module, that both renderers
+call the drawer with the right URL and box, and that two renders of the same
+document are byte-identical.
+
+Checked by hand as well, through a different path: the sample PDFs were
+rasterized with PyMuPDF at 4x and decoded, giving
+`http://168.231.87.48:3100/v1/documents/verify/FA-2026-000042` and the
+matching URL for the reservation confirmation.
+
+---
+
 ## 2026-11-07
 
 **No image in the product could be displayed, and never could.** Reported as
