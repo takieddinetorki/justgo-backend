@@ -100,6 +100,21 @@ export interface VerifiedContent {
   issuer: string | null;
   /** How many lines the real document has, so an added line shows up. */
   lineCount: number | null;
+  /**
+   * WHAT THE DOCUMENT SAYS, as printed, for the types that are not
+   * invoices.
+   *
+   * A total and a line count are the comparison for a facture. For a
+   * reservation confirmation they are all null, and the scan screen was
+   * left telling people to "compare these figures" with no figures
+   * under it — service, appointment, car and customer are the things
+   * that would catch a forged confirmation, and they live in the
+   * payload.
+   *
+   * Straight from the frozen snapshot, so these are the values the
+   * document was issued with and the ones actually printed on it.
+   */
+  fields: Array<{ label: string; value: string }>;
 }
 
 /** A single answer a client can render without deriving one itself. */
@@ -140,6 +155,25 @@ export interface VerificationResult {
   voidReason?: string | null;
   /** Present on a fingerprint lookup. Compare it with the paper. */
   content?: VerifiedContent;
+  /**
+   * WHAT THE DOCUMENT IS ABOUT, so a scan can go there.
+   *
+   * A confirmation in a customer's hand is not mainly an integrity
+   * puzzle — the workshop scanning it wants the booking on screen, with
+   * the car and the customer, ready to be marked as arrived. Without
+   * this the answer stopped at "yes, genuine" and the app had to ask
+   * the person to find the booking themselves in a list.
+   *
+   * It is a POINTER, not an authorisation: `{ type: 'reservation', id }`.
+   * Whoever follows it still has to hold a token the owning endpoint
+   * accepts, so an anonymous scanner learns a UUID and nothing more.
+   *
+   * Fingerprint lookups only, on the same reasoning as `content` —
+   * document numbers are sequential, and handing out subject ids
+   * against them would let the series be walked into a list of
+   * everything a business has booked.
+   */
+  subject?: { type: string; id: string };
   /** Plain-language summary for a human holding a printout. */
   message: string;
 }

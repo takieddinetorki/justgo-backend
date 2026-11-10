@@ -1,4 +1,9 @@
-import { SUPPLIER_TARGETING_PORT } from '@justgo/contracts';
+import {
+  PARTY_DIRECTORY_PORT,
+  SELLER_IDENTITY_PORT,
+  SUPPLIER_TARGETING_PORT,
+  VEHICLE_DIRECTORY_PORT,
+} from '@justgo/contracts';
 import { TargetingModule } from './targeting.module';
 
 /**
@@ -47,5 +52,31 @@ describe('TargetingModule', () => {
   it('imports suppliers, which supplies the port it adapts', () => {
     expect(mod.imports).toBeDefined();
     expect((mod.imports ?? []).length).toBeGreaterThan(0);
+  });
+
+  /*
+    Every seam the platform modules inject NON-optionally has to be
+    exported here, or the application refuses to boot. That is the
+    intended failure - loud, at start, in every environment - but it is
+    worth catching one step earlier, because the graph itself cannot be
+    compiled under jest (see above).
+
+    ReservationsService injects the directory ports outright: a workshop
+    calendar that silently loses its customers is the exact failure mode
+    this module exists to prevent.
+  */
+  it('exports every seam a platform module injects', () => {
+    const exported = mod.exports ?? [];
+    expect(exported).toContain(SELLER_IDENTITY_PORT);
+    expect(exported).toContain(PARTY_DIRECTORY_PORT);
+    expect(exported).toContain(VEHICLE_DIRECTORY_PORT);
+  });
+
+  it('provides each of them against its token', () => {
+    const tokens = (mod.providers ?? []).map((p) =>
+      typeof p === 'object' && p !== null && 'provide' in p ? p.provide : p,
+    );
+    expect(tokens).toContain(PARTY_DIRECTORY_PORT);
+    expect(tokens).toContain(VEHICLE_DIRECTORY_PORT);
   });
 });

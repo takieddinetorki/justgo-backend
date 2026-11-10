@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { CurrentAuth, RequirePermissions, type AuthContext } from '@justgo/auth';
 import { asId, ForbiddenError, ValidationError, type ReservationId } from '@justgo/kernel';
 import { RESERVATIONS_PORT, type ReservationsPort } from './contract/reservations.port';
-import type { ReservationDTO } from './contract/dto';
+import type { ReservationDTO, SupplierReservationDTO } from './contract/dto';
 
 const actionSchema = z
   .object({
@@ -32,8 +32,26 @@ export class SupplierReservationsController {
   async list(
     @CurrentAuth() auth: AuthContext,
     @Query('limit') limit?: string,
-  ): Promise<{ items: ReservationDTO[] }> {
+  ): Promise<{ items: SupplierReservationDTO[] }> {
     return { items: await this.reservations.listForSupplier(this.scope(auth), limit ? Number(limit) : 50) };
+  }
+
+  /**
+   * One booking, by id. WHERE A SCANNED CONFIRMATION LANDS.
+   *
+   * The QR resolves to a document, the document names its subject, and
+   * the app comes straight here with that id. Before this route existed
+   * the scan could prove a confirmation was genuine and then had
+   * nowhere to go, so the app fell back to listing the whole calendar
+   * and asking the person to pick the booking out of it by hand.
+   */
+  @Get(':id')
+  @RequirePermissions('reservation.manage')
+  async get(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id') id: string,
+  ): Promise<SupplierReservationDTO> {
+    return this.reservations.getForSupplier(this.scope(auth), asId<ReservationId>(id));
   }
 
   @Patch(':id')

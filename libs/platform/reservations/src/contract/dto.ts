@@ -1,3 +1,4 @@
+import type { PartyDTO, VehicleSummaryDTO } from '@justgo/contracts';
 import type { AccountId, BranchId, ReservationId, SupplierId, VehicleId } from '@justgo/kernel';
 
 export type ReservationStatus =
@@ -20,6 +21,27 @@ export interface ReservationDTO {
   status: ReservationStatus;
   note: string | null;
   createdAt: string;
+}
+
+/**
+ * What the supplier sees: the same booking, plus who is bringing which
+ * car.
+ *
+ * A SEPARATE TYPE, not two optional fields on `ReservationDTO`, because
+ * the audience is what decides whether they may be filled. The client
+ * reading their own booking has no business being handed their own
+ * contact card back, and nothing outside the supplier endpoints should
+ * be able to resolve a customer by accident.
+ *
+ * Both blocks are nullable and that is normal: a service that needs no
+ * vehicle has none, and most accounts on this deployment have no name
+ * because nothing ever asked for one. A null reaches the screen as
+ * "unknown", which is honest. It used to reach the screen as "Client ·
+ * 4ab5bb55" — the first segment of a primary key, dressed as a person.
+ */
+export interface SupplierReservationDTO extends ReservationDTO {
+  customer: PartyDTO | null;
+  vehicle: VehicleSummaryDTO | null;
 }
 
 export interface CreateReservationDTO {

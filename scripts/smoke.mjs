@@ -1449,6 +1449,147 @@ async function main() {
       (filtered.data?.items ?? []).some((l) => l.id === listingId), `status ${filtered.status}`);
   }
 
+  /*
+    BOOKING A WORKSHOP, through to the scan of the confirmation.
+
+    None of this was covered here, which is how two things shipped. The
+    supplier-facing calendar handed out `clientAccountId` and a
+    `vehicleId` and nothing else, so the app had no customer to show and
+    printed "Client - 4ab5bb55" out of the id. And a scanned
+    confirmation answered "genuine" without saying what it was FOR, so
+    the app could only list the whole calendar and ask the workshop to
+    find the booking by hand.
+  */
+  section('booking a workshop: accept -> confirmation -> scan');
+  {
+    const whoami = await call('PUT', '/v1/me', {
+      token: client.token,
+      body: { firstName: 'Riyad', familyName: 'Benali', phone: '+213555112233' },
+    });
+    check('the customer has a name on file',
+      whoami.data?.firstName === 'Riyad' && whoami.data?.familyName === 'Benali',
+      `status ${whoami.status}`);
+
+    const car = await call('POST', '/v1/vehicles', {
+      token: client.token,
+      body: {
+        brand: 'Kia',
+        model: 'Picanto',
+        year: 2010,
+        vin: `VF1${String(STAMP).slice(-14)}`,
+        plate: `16-${String(STAMP).slice(-5)}-119`,
+        mileageKm: 100,
+        resolveTecDoc: false,
+      },
+    });
+    check('and a car in the garage', Boolean(car.data?.id), `status ${car.status}`);
+
+    const slotStart = new Date(Date.now() + 86_400_000).toISOString();
+    const slotEnd = new Date(Date.now() + 86_400_000 + 3_600_000).toISOString();
+    const booked = await call('POST', '/v1/reservations', {
+      token: client.token,
+      body: { supplierId, serviceTypeKey: 'brake_service', vehicleId: car.data?.id, slotStart, slotEnd },
+    });
+    const bookingId = booked.data?.id;
+    check('the client books a brake service', booked.status < 400 && booked.data?.status === 'pending',
+      `status ${booked.status} ${JSON.stringify(booked.data).slice(0, 100)}`);
+
+    const accepted = await call('PATCH', `/v1/supplier/reservations/${bookingId}`, {
+      token: seller.token,
+      body: { action: 'accept' },
+    });
+    check('the workshop accepts it', accepted.data?.status === 'accepted', `status ${accepted.status}`);
+
+    /*
+      THE CALENDAR. A workshop looking at tomorrow needs to know who is
+      coming and in what - not two UUIDs.
+    */
+    const calendar = await call('GET', '/v1/supplier/reservations?limit=20', { token: seller.token });
+    const row = (calendar.data?.items ?? []).find((r) => r.id === bookingId);
+    check('the calendar names the customer instead of printing an id',
+      row?.customer?.name === 'Riyad Benali',
+      `customer ${JSON.stringify(row?.customer)}`);
+    check('and gives a number to call them on', row?.customer?.phone === '+213555112233',
+      String(row?.customer?.phone));
+    check('and says which car is coming in',
+      row?.vehicle?.brand === 'Kia' && row?.vehicle?.model === 'Picanto' && row?.vehicle?.mileageKm === 100,
+      `vehicle ${JSON.stringify(row?.vehicle)}`);
+
+    const one = await call('GET', `/v1/supplier/reservations/${bookingId}`, { token: seller.token });
+    check('one booking can be opened by id', one.status === 200 && one.data?.id === bookingId,
+      `status ${one.status}`);
+
+    /*
+      Another business must not be able to open it, and must not learn
+      that it exists: 404, never 403.
+    */
+    const nosy = await call('GET', `/v1/supplier/reservations/${bookingId}`, { token: other.token });
+    check("another workshop cannot open somebody else's booking", nosy.status === 404,
+      `status ${nosy.status}`);
+
+    const malformed = await call('GET', '/v1/supplier/reservations/not-a-uuid', { token: seller.token });
+    check('a malformed booking id is a 400, not a 500', malformed.status === 400,
+      `status ${malformed.status}`);
+
+    // The confirmation is issued by a reactor: outbox -> relay -> bus.
+    const confirmation = await eventually('a confirmation is issued for the booking', async () => {
+      const res = await call('GET', '/v1/documents?limit=50', { token: client.token });
+      return (res.data?.items ?? []).find(
+        (d) => d.type === 'reservation_confirmation' && d.subjectId === bookingId,
+      ) ?? null;
+    });
+
+    if (confirmation) {
+      ok('a confirmation is issued for the booking', `${confirmation.number}`);
+      check('it carries a fingerprint to scan', /^[0-9a-f]{64}$/.test(confirmation.contentHash ?? ''),
+        String(confirmation.contentHash).slice(0, 16));
+
+      const scanned = await verifyRetrying(confirmation.contentHash);
+      check('the scan confirms it is genuine', scanned.data?.found === true && scanned.data?.authentic === true,
+        `verdict ${scanned.data?.verdict}`);
+
+      /*
+        AND SAYS WHERE TO GO. This is what turns a scan into navigation
+        rather than a verdict the workshop then has to act on by hand.
+      */
+      check('the scan says WHAT the document is about',
+        scanned.data?.subject?.type === 'reservation' && scanned.data?.subject?.id === bookingId,
+        `subject ${JSON.stringify(scanned.data?.subject)}`);
+
+      /*
+        A confirmation has no total, so the comparison the holder is
+        asked to make has to be the things printed on it.
+      */
+      const labels = (scanned.data?.content?.fields ?? []).map((f) => `${f.label}=${f.value}`).join(' | ');
+      check('and reads back what the confirmation actually says',
+        labels.includes('Client=Riyad Benali') && labels.includes('Prestation='),
+        labels.slice(0, 110));
+
+      // The subject is a navigation hint, not an authorisation.
+      const anonymous = await fetch(`${API}/v1/supplier/reservations/${scanned.data?.subject?.id}`);
+      check('following it without a token gets you nowhere', anonymous.status === 401,
+        `HTTP ${anonymous.status}`);
+
+      const landed = await call('GET', `/v1/supplier/reservations/${scanned.data?.subject?.id}`, {
+        token: seller.token,
+      });
+      check('the workshop lands straight on the booking the scan pointed at',
+        landed.status === 200 && landed.data?.id === bookingId && landed.data?.customer?.name === 'Riyad Benali',
+        `status ${landed.status} customer ${landed.data?.customer?.name}`);
+
+      /*
+        Document numbers are sequential (RES-2026-000013, 000014...), so
+        a lookup by number must not hand out subject ids - that would
+        turn the public route into an index of everything a business has
+        booked.
+      */
+      const byNumber = await verifyRetrying(confirmation.number);
+      check('but a NUMBER lookup points at nothing',
+        byNumber.data?.found === true && byNumber.data?.subject === undefined,
+        `subject ${JSON.stringify(byNumber.data?.subject)}`);
+    }
+  }
+
   section('reclamations');
   const filed = await call('POST', '/v1/reclamations', {
     token: client.token,

@@ -324,6 +324,13 @@ export class DocumentsService implements DocumentsPort {
     */
     if (hash) {
       result.content = summarise(doc);
+      /*
+        And where it points. A scanned confirmation is a navigation
+        token as much as a seal: the supplier wants the booking, not a
+        verdict. Only on a fingerprint, for the same reason as the
+        figures above.
+      */
+      result.subject = { type: doc.subjectType, id: doc.subjectId };
     }
 
     result.verdict = decide(result);
@@ -386,7 +393,29 @@ function summarise(doc: {
     issuedOn: doc.issuedAt.slice(0, 10),
     issuer: typeof seller?.legalName === 'string' ? seller.legalName : null,
     lineCount: lines ? lines.length : null,
+    fields: printedFields(p),
   };
+}
+
+/**
+ * The payload's own label/value lines, exactly as the renderer prints
+ * them.
+ *
+ * Scalars only, and the keys the invoice summary already covers are
+ * dropped so nothing is stated twice. Capped and truncated because this
+ * is a comparison aid on a phone screen, not a copy of the document —
+ * the document itself is one upload away.
+ */
+function printedFields(payload: Record<string, unknown>): Array<{ label: string; value: string }> {
+  const COVERED = ['lines', 'seller', 'buyer', 'currency', 'buyerNif'];
+  const out: Array<{ label: string; value: string }> = [];
+  for (const [label, value] of Object.entries(payload ?? {})) {
+    if (out.length >= 8) break;
+    if (COVERED.indexOf(label) !== -1) continue;
+    if (value === null || value === undefined || typeof value === 'object') continue;
+    out.push({ label, value: String(value).slice(0, 80) });
+  }
+  return out;
 }
 
 /** One verdict, decided here so no client has to derive it. */
@@ -431,12 +460,26 @@ export function describe(r: VerificationResult): string {
       const base =
         `JustGo did issue a document with this fingerprint${r.number ? ` (${r.number})` : ''}` +
         ` and our sealed copy is intact.`;
+      /*
+        A total is the comparison for a facture. A confirmation has no
+        total, and saying only "it is dated the 10th" gives the holder
+        nothing to check — so for those we read back what the document
+        actually says: the service, the appointment, the car.
+      */
+      const says =
+        c && c.totalMinor === null && c.fields.length > 0
+          ? `, and says: ${c.fields
+              .slice(0, 4)
+              .map((f) => `${f.label} ${f.value}`)
+              .join('; ')}`
+          : '';
       const compare = c
         ? ` It is dated ${c.issuedOn}${c.issuer ? `, issued by ${c.issuer}` : ''}` +
           (c.totalMinor !== null && c.currency
             ? `, for a total of ${(c.totalMinor / 100).toFixed(2)} ${c.currency}`
             : '') +
           (c.lineCount !== null ? ` across ${c.lineCount} line(s)` : '') +
+          says +
           '. CHECK THOSE AGAINST YOUR COPY: if they differ, the paper you are holding is not this document.'
         : '';
       return (

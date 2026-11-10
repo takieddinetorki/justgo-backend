@@ -142,6 +142,22 @@ export class PgReservationsRepository {
   }
 
   /**
+   * One booking, scoped to the supplier in the same query.
+   *
+   * The supplier id is a WHERE clause, not a check after the fact: a
+   * read that fetches first and compares second is one early return
+   * away from leaking, and the row simply is not theirs to see.
+   */
+  async byIdForSupplier(supplierId: SupplierId, id: ReservationId): Promise<ReservationDTO | null> {
+    const res = await this.pool.query<Row>(
+      `select ${COLS} from reservations.reservations where id = $1 and supplier_id = $2`,
+      [id, supplierId],
+    );
+    const row = res.rows[0];
+    return row ? toDTO(row) : null;
+  }
+
+  /**
    * Guarded status transition. `by` scopes ownership — supplier-side actions
    * check supplier_id, client-side check client_account_id. Emits
    * ReservationStatusChanged in the same tx (§17.2).
@@ -204,6 +220,15 @@ export class PgReservationsRepository {
             supplierId: row.supplier_id,
             from,
             to: next,
+            /*
+              The booking itself travels with the event. Taken from the
+              UPDATED row, so a reschedule announces the new slot rather
+              than the one it replaced.
+            */
+            serviceTypeKey: res.rows[0].service_type_key,
+            slotStart: res.rows[0].slot_start.toISOString(),
+            slotEnd: res.rows[0].slot_end.toISOString(),
+            vehicleId: res.rows[0].vehicle_id,
           },
         }),
       ]);

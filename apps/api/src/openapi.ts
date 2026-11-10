@@ -479,6 +479,42 @@ function schemas(): Record<string, unknown> {
         createdAt: { type: 'string', format: 'date-time' },
       },
     },
+    SupplierReservation: {
+      allOf: [
+        { $ref: '#/components/schemas/Reservation' },
+        {
+          type: 'object',
+          description:
+            'A booking as the SUPPLIER sees it: the same row, plus who is bringing which car. Both blocks are null when unknown - a service that needs no vehicle has none, and an account that was never asked for a name has none. Render a null as "unknown"; do NOT substitute the account id, which is what produced "Client - 4ab5bb55" on the booking card.',
+          properties: {
+            customer: {
+              type: 'object',
+              nullable: true,
+              properties: {
+                accountId: { type: 'string', format: 'uuid' },
+                name: { type: 'string', nullable: true, example: 'Riyad Benali' },
+                phone: { type: 'string', nullable: true, example: '+213…' },
+              },
+            },
+            vehicle: {
+              type: 'object',
+              nullable: true,
+              description: 'Resolved owner-scoped on the client named on the booking, so a supplier can only ever see a car that was booked in with them.',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                name: { type: 'string', nullable: true },
+                brand: { type: 'string', nullable: true, example: 'Kia' },
+                model: { type: 'string', nullable: true, example: 'Picanto' },
+                year: { type: 'integer', nullable: true, example: 2010 },
+                vin: { type: 'string', nullable: true },
+                plate: { type: 'string', nullable: true },
+                mileageKm: { type: 'integer', nullable: true },
+              },
+            },
+          },
+        },
+      ],
+    },
     Listing: {
       type: 'object',
       properties: {
@@ -841,6 +877,24 @@ function schemas(): Record<string, unknown> {
             issuedOn: { type: 'string', example: '2026-11-09' },
             issuer: { type: 'string', nullable: true, example: 'SARL Pieces Auto Alger' },
             lineCount: { type: 'integer', nullable: true, example: 3 },
+            fields: {
+              type: 'array',
+              description:
+                'The document label/value lines, as printed. What a confirmation offers instead of a total: service, appointment, car. Show them next to the paper.',
+              items: {
+                type: 'object',
+                properties: { label: { type: 'string' }, value: { type: 'string' } },
+              },
+            },
+          },
+        },
+        subject: {
+          type: 'object',
+          description:
+            'WHAT THE DOCUMENT IS ABOUT, so a scan can navigate there instead of stopping at a verdict. `{ type: "reservation", id }` routes to GET /v1/supplier/reservations/{id}. Fingerprint lookups only. It is a pointer, not an authorisation - following it still needs a token the owning endpoint accepts.',
+          properties: {
+            type: { type: 'string', example: 'reservation' },
+            id: { type: 'string', format: 'uuid' },
           },
         },
         number: { type: 'string', example: 'FA-2026-000001' },
@@ -2685,8 +2739,18 @@ function enrich(doc: OpenAPIObject): void {
   set('/v1/supplier/reservations', 'get', {
     tags: ['Supplier · Calendar'],
     summary: 'The supplier’s calendar',
+    description:
+      'Each booking carries its customer and its car, resolved across module boundaries. Do not build a label out of clientAccountId when customer.name is null.',
     parameters: [{ name: 'limit', in: 'query', schema: { type: 'integer', maximum: 100 } }],
-    responses: { ...ok(listOf('Reservation')), ...errors() },
+    responses: { ...ok(listOf('SupplierReservation')), ...errors() },
+  });
+  set('/v1/supplier/reservations/{id}', 'get', {
+    tags: ['Supplier · Calendar'],
+    summary: 'One booking, by id — where a scanned confirmation lands',
+    description:
+      'Scanning a confirmation returns `subject: { type: "reservation", id }`; this is the route that id is for. A booking made with another supplier is 404, never 403.',
+    parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+    responses: { ...ok(ref('SupplierReservation')), ...errors() },
   });
   set('/v1/supplier/reservations/{id}', 'patch', {
     tags: ['Supplier · Calendar'],

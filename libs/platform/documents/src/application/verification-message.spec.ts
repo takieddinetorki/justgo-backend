@@ -28,6 +28,24 @@ const WITH_CONTENT = {
     issuedOn: '2026-11-09',
     issuer: 'SARL Pieces Auto Alger',
     lineCount: 3,
+    fields: [],
+  },
+};
+
+/** A confirmation: no total anywhere, and the facts live in the payload. */
+const RESERVATION_CONTENT = {
+  content: {
+    totalMinor: null,
+    currency: null,
+    issuedOn: '2026-11-10',
+    issuer: null,
+    lineCount: null,
+    fields: [
+      { label: 'Statut', value: 'Confirmee' },
+      { label: 'Prestation', value: 'Freinage' },
+      { label: 'Rendez-vous', value: '10/11/2026 23:12 - 00:12' },
+      { label: 'Vehicule', value: 'Kia Picanto 2010' },
+    ],
   },
 };
 
@@ -63,6 +81,22 @@ describe('verification message', () => {
     expect(r.message).toMatch(/SARL Pieces Auto Alger/);
     expect(r.message).toMatch(/3 line\(s\)/);
     expect(r.message).toMatch(/CHECK THOSE AGAINST YOUR COPY/);
+  });
+
+  /*
+    A reservation confirmation has no total, no currency and no lines.
+    The comparison sentence used to collapse to "It is dated the 10th",
+    which tells a workshop nothing it could check - so for those the
+    answer reads back what the document actually says.
+  */
+  it('reads back the printed facts when there is no total to compare', () => {
+    const r = answer(RESERVATION_CONTENT);
+    expect(r.message).toMatch(/Prestation Freinage/);
+    expect(r.message).toMatch(/Rendez-vous 10\/11\/2026 23:12/);
+    expect(r.message).toMatch(/CHECK THOSE AGAINST YOUR COPY/);
+    // And never a total it does not have.
+    expect(r.message).not.toMatch(/total/i);
+    expect(r.message).not.toMatch(/0\.00/);
   });
 
   it('is the strongest answer only when a file was supplied and matched', () => {

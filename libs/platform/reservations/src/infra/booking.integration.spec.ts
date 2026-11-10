@@ -10,7 +10,12 @@ import {
   type SupplierId,
   type VehicleId,
 } from '@justgo/kernel';
-import type { ServiceCatalogPort, ServiceTypeDTO } from '@justgo/contracts';
+import type {
+  PartyDirectoryPort,
+  ServiceCatalogPort,
+  ServiceTypeDTO,
+  VehicleDirectoryPort,
+} from '@justgo/contracts';
 import { PgReservationsRepository } from './pg-reservations.repository';
 import { ReservationsService } from '../application/reservations.service';
 
@@ -32,6 +37,15 @@ const catalog: ServiceCatalogPort = {
   listServiceTypes: async () => [oilChange],
 };
 
+/*
+  Directories that know nobody. The supplier-facing reads must still
+  answer with the booking and a null customer: a workshop's calendar
+  going blank because identity is unreachable would be a worse failure
+  than a nameless row.
+*/
+const noParties: PartyDirectoryPort = { partyFor: async () => null };
+const noVehicles: VehicleDirectoryPort = { vehicleFor: async () => null };
+
 const soon = (offsetMin: number) => new Date(Date.now() + offsetMin * 60_000).toISOString();
 
 describePg('booking flow', () => {
@@ -40,7 +54,9 @@ describePg('booking flow', () => {
 
   beforeAll(() => {
     pool = new Pool({ connectionString: DATABASE_URL });
-    service = new ReservationsService(new PgReservationsRepository(pool), catalog, { now: () => new Date() });
+    service = new ReservationsService(new PgReservationsRepository(pool), catalog, noParties, noVehicles, {
+      now: () => new Date(),
+    });
   });
 
   afterAll(async () => {

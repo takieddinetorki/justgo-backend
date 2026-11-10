@@ -4,6 +4,8 @@ export * from './lib/verticals';
 export * from './lib/vertical-registry';
 export * from './lib/supplier-targeting.port';
 export * from './lib/seller-identity.port';
+export * from './lib/party-directory.port';
+export * from './lib/vehicle-directory.port';
 export * from './lib/service-catalog.port';
 export * from './lib/catalogue.port';
 export * from './lib/contracts.module';

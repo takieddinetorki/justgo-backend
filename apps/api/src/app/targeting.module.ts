@@ -1,8 +1,17 @@
 import { Module, type DynamicModule } from '@nestjs/common';
-import { SELLER_IDENTITY_PORT, SUPPLIER_TARGETING_PORT } from '@justgo/contracts';
+import {
+  PARTY_DIRECTORY_PORT,
+  SELLER_IDENTITY_PORT,
+  SUPPLIER_TARGETING_PORT,
+  VEHICLE_DIRECTORY_PORT,
+} from '@justgo/contracts';
+import { IdentityModule } from '@justgo/identity';
 import { SuppliersModule } from '@justgo/suppliers';
+import { VehiclesModule } from '@justgo/vehicles';
 import { SupplierTargetingAdapter } from './supplier-targeting.adapter';
 import { SellerIdentityAdapter } from './seller-identity.adapter';
+import { PartyDirectoryAdapter } from './party-directory.adapter';
+import { VehicleDirectoryAdapter } from './vehicle-directory.adapter';
 
 /**
  * Binds the requests module's fan-out seam to the suppliers module
@@ -31,9 +40,10 @@ import { SellerIdentityAdapter } from './seller-identity.adapter';
  * either module gets extracted later (§4.8).
  *
  * It now carries every such seam, not just targeting — `documents` needs
- * the seller's fiscal identity from `suppliers` on exactly the same
- * terms. One global module keeps them together rather than scattering a
- * module per join.
+ * the seller's fiscal identity from `suppliers`, and the booking screens
+ * need a customer's name from `identity` and a car from `vehicles`, on
+ * exactly the same terms. One global module keeps them together rather
+ * than scattering a module per join.
  */
 @Module({})
 export class TargetingModule {
@@ -41,14 +51,23 @@ export class TargetingModule {
     return {
       module: TargetingModule,
       global: true,
-      imports: [SuppliersModule],
+      imports: [SuppliersModule, IdentityModule, VehiclesModule],
       providers: [
         SupplierTargetingAdapter,
         { provide: SUPPLIER_TARGETING_PORT, useExisting: SupplierTargetingAdapter },
         SellerIdentityAdapter,
         { provide: SELLER_IDENTITY_PORT, useExisting: SellerIdentityAdapter },
+        PartyDirectoryAdapter,
+        { provide: PARTY_DIRECTORY_PORT, useExisting: PartyDirectoryAdapter },
+        VehicleDirectoryAdapter,
+        { provide: VEHICLE_DIRECTORY_PORT, useExisting: VehicleDirectoryAdapter },
       ],
-      exports: [SUPPLIER_TARGETING_PORT, SELLER_IDENTITY_PORT],
+      exports: [
+        SUPPLIER_TARGETING_PORT,
+        SELLER_IDENTITY_PORT,
+        PARTY_DIRECTORY_PORT,
+        VEHICLE_DIRECTORY_PORT,
+      ],
     };
   }
 }

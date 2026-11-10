@@ -2,15 +2,30 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   BusinessRuleError,
   CLOCK,
+  NotFoundError,
   ValidationError,
   type AccountId,
   type Clock,
   type ReservationId,
   type SupplierId,
 } from '@justgo/kernel';
-import { SERVICE_CATALOG_PORT, type ServiceCatalogPort } from '@justgo/contracts';
+import {
+  PARTY_DIRECTORY_PORT,
+  SERVICE_CATALOG_PORT,
+  VEHICLE_DIRECTORY_PORT,
+  type PartyDTO,
+  type PartyDirectoryPort,
+  type ServiceCatalogPort,
+  type VehicleDirectoryPort,
+  type VehicleSummaryDTO,
+} from '@justgo/contracts';
 import type { ReservationsPort } from '../contract/reservations.port';
-import type { CreateReservationDTO, RescheduleDTO, ReservationDTO } from '../contract/dto';
+import type {
+  CreateReservationDTO,
+  RescheduleDTO,
+  ReservationDTO,
+  SupplierReservationDTO,
+} from '../contract/dto';
 import { PgReservationsRepository } from '../infra/pg-reservations.repository';
 
 export const RESERVATIONS_REPOSITORY = Symbol('RESERVATIONS_REPOSITORY');
@@ -20,6 +35,8 @@ export class ReservationsService implements ReservationsPort {
   constructor(
     @Inject(RESERVATIONS_REPOSITORY) private readonly repo: PgReservationsRepository,
     @Inject(SERVICE_CATALOG_PORT) private readonly serviceCatalog: ServiceCatalogPort,
+    @Inject(PARTY_DIRECTORY_PORT) private readonly parties: PartyDirectoryPort,
+    @Inject(VEHICLE_DIRECTORY_PORT) private readonly vehicles: VehicleDirectoryPort,
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
@@ -51,8 +68,62 @@ export class ReservationsService implements ReservationsPort {
     return this.repo.listForClient(clientAccountId, Math.min(limit, 200));
   }
 
-  listForSupplier(supplierId: SupplierId, limit = 50): Promise<ReservationDTO[]> {
-    return this.repo.listForSupplier(supplierId, Math.min(limit, 200));
+  async listForSupplier(supplierId: SupplierId, limit = 50): Promise<SupplierReservationDTO[]> {
+    const rows = await this.repo.listForSupplier(supplierId, Math.min(limit, 200));
+    return this.withParties(rows);
+  }
+
+  async getForSupplier(supplierId: SupplierId, id: ReservationId): Promise<SupplierReservationDTO> {
+    const row = await this.repo.byIdForSupplier(supplierId, id);
+    if (!row) throw new NotFoundError('Reservation', id);
+    const [enriched] = await this.withParties([row]);
+    return enriched;
+  }
+
+  /**
+   * Resolve the customer and the car for bookings the supplier owns.
+   *
+   * Across module boundaries by port, never by SQL: reservations may
+   * read its own schema and nothing else (§17.4). The vehicle read is
+   * owner-scoped on the CLIENT NAMED ON THE BOOKING, so a supplier can
+   * only ever resolve a car that was booked in with them.
+   *
+   * Deduplicated before fetching, because a workshop's calendar is
+   * mostly the same handful of regulars: the four bookings on one
+   * screen in the field were one customer and one car, which is one
+   * lookup each rather than eight. Failures degrade to null instead of
+   * failing the calendar - a directory being down is not a reason to
+   * hide the day's work.
+   */
+  private async withParties(rows: ReservationDTO[]): Promise<SupplierReservationDTO[]> {
+    if (rows.length === 0) return [];
+
+    const accountIds = rows
+      .map((r) => String(r.clientAccountId))
+      .filter((id, i, all) => all.indexOf(id) === i);
+    const vehicleKeys = rows
+      .filter((r) => r.vehicleId !== null)
+      .map((r) => `${r.clientAccountId}|${r.vehicleId}`)
+      .filter((key, i, all) => all.indexOf(key) === i);
+
+    const parties = new Map<string, PartyDTO | null>();
+    const cars = new Map<string, VehicleSummaryDTO | null>();
+
+    await Promise.all([
+      ...accountIds.map(async (id) => {
+        parties.set(id, await this.parties.partyFor(id).catch(() => null));
+      }),
+      ...vehicleKeys.map(async (key) => {
+        const [owner, vehicleId] = key.split('|');
+        cars.set(key, await this.vehicles.vehicleFor(owner, vehicleId).catch(() => null));
+      }),
+    ]);
+
+    return rows.map((r) => ({
+      ...r,
+      customer: parties.get(String(r.clientAccountId)) ?? null,
+      vehicle: r.vehicleId ? (cars.get(`${r.clientAccountId}|${r.vehicleId}`) ?? null) : null,
+    }));
   }
 
   accept(supplierId: SupplierId, id: ReservationId): Promise<ReservationDTO> {

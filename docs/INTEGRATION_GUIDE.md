@@ -797,10 +797,37 @@ and `listing.bid.declined` (buyer). A decline carries
 `superseded` means that buyer raised their offer and the newer one replaced it.
 
 ### Supplier · Calendar (reservations) — Phase 3 (supplier-scoped)
-- **`GET /v1/supplier/reservations?limit=`** → `{ items: Reservation[] }`.
+- **`GET /v1/supplier/reservations?limit=`** → `{ items: SupplierReservation[] }`.
+- **`GET /v1/supplier/reservations/{id}`** → `SupplierReservation`. **Where a
+  scanned confirmation lands** — see Documents below. A booking made with
+  another business is **404**, never 403.
 - **`PATCH /v1/supplier/reservations/{id}`** body
   `{ action:"accept|reject|reschedule|complete", reason?, slotStart?, slotEnd? }`
   → `Reservation`. `reschedule` needs `slotStart`+`slotEnd`. Needs `reservation.manage`.
+
+A `SupplierReservation` is the booking **plus who is bringing which car**:
+
+```json
+{ "id":"uuid","clientAccountId":"uuid","supplierId":"uuid",
+  "serviceTypeKey":"brake_service","vehicleId":"uuid",
+  "slotStart":"…","slotEnd":"…","status":"accepted","note":null,"createdAt":"…",
+  "customer": { "accountId":"uuid", "name":"Riyad Benali", "phone":"+213…" },
+  "vehicle":  { "id":"uuid","name":null,"brand":"Kia","model":"Picanto",
+                "year":2010,"vin":"…","plate":"…","mileageKm":100 } }
+```
+
+**Do not build a label out of `clientAccountId`.** `customer` and `vehicle`
+are `null` when there is nothing to resolve — a service that needs no
+vehicle has none, and an account that was never asked for a name has none.
+`customer.name` is `null` on its own in that second case. Render the null as
+*unknown* (or prompt for the name); a card reading `Client · 4ab5bb55` is the
+first eight characters of a primary key, and that is what this field exists
+to stop. The client's own `GET /v1/reservations` returns the plain
+`Reservation` — there is no customer block on it, because the caller **is**
+the customer.
+
+`vehicle` is resolved **owner-scoped on the client named on the booking**, so
+a workshop can only ever see a car that was booked in with it.
 
 ### Supplier · Dispatch (assistance) — Phase 3 (supplier-scoped)
 - **`PATCH /v1/supplier/assistance/{id}`** body `{ action:"accept|en_route|complete" }`
@@ -1097,8 +1124,37 @@ it already trusts. Your job is to list, download and verify them.
   case are ignored**, so you can pass what somebody typed off the page
   (`6B89C31D C3D56279 …`) without cleaning it up first. A document **number**
   works on the same path — use it for documents issued before 2026-11-09,
-  which have no fingerprint. Returns status and authenticity only — no
-  amounts, no parties — because numbers are guessable.
+  which have no fingerprint. A lookup **by number** returns status and
+  authenticity only — no amounts, no parties, no `subject` — because numbers
+  are sequential and guessable.
+
+#### A scan is navigation, not just a verdict
+
+On a **fingerprint** lookup the answer also carries `subject`:
+
+```json
+"subject": { "type": "reservation", "id": "4d2fa9fb-…" }
+```
+
+That is what the document is **about**, and it is the whole point of
+scanning one. A workshop pointing a camera at a confirmation wants the
+booking on screen — customer, car, slot — not a badge saying GENUINE. Route
+on it:
+
+| `subject.type` | go to |
+|---|---|
+| `reservation` | `GET /v1/supplier/reservations/{subject.id}` (supplier) |
+| `order` | the order screen for that id |
+
+It is a **pointer, not an authorisation**. Following it still needs a token
+the owning endpoint accepts, and that endpoint answers 404 if the booking is
+not yours, so an anonymous scanner learns a UUID and nothing else. Never
+show a booking's contents off the back of a scan alone — fetch them.
+
+`content.fields` carries the document's own label/value lines, as printed.
+That is what a confirmation offers in place of a total: service,
+appointment, car. Show them beside the paper — it is how a holder catches a
+fingerprint that was copied onto a page saying something else.
 - **`POST /v1/documents/verify/{fingerprint}`** body `{ "file":"<base64 pdf>" }` →
   `VerificationResult` with `matchesSuppliedFile`. The stronger check: it
   compares the bytes *the holder has* against the bytes we sealed, which
