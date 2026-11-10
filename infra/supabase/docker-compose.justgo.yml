@@ -20,6 +20,22 @@ services:
     container_name: justgo-supabase-rest
   realtime:
     container_name: justgo-supabase-realtime
+    # Realtime derives the TENANT from the first label of the Host header it
+    # is called with, and the only tenant seeded here is `realtime-dev`.
+    # Upstream relies on the container name to carry it: Kong proxies to
+    # http://realtime-dev.supabase-realtime:4000 and, with preserve_host off,
+    # sends that name as the Host. Renaming the container above broke the
+    # name, so Kong could not resolve it and /realtime/v1 was dead.
+    #
+    # The alias restores the name WITHOUT taking it back as the container
+    # name, which has to stay prefixed to coexist with the other stack on
+    # this box. Pointing Kong at `realtime:4000` instead would resolve and
+    # then be refused: realtime answers 403 to Host `realtime`, because no
+    # such tenant exists. Measured, not guessed — see README.justgo.md.
+    networks:
+      default:
+        aliases:
+          - realtime-dev.supabase-realtime
   storage:
     container_name: justgo-supabase-storage
   imgproxy:

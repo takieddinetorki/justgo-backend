@@ -28,6 +28,34 @@ Ports are remapped for the same reason:
 Never edit `docker-compose.yml` — put changes in `docker-compose.justgo.yml`
 so the upstream file stays updatable.
 
+### Renaming a container can break it: Realtime
+
+Realtime is **multi-tenant even when self-hosted**, and it reads the tenant
+from the FIRST LABEL of the Host header it is called with. One tenant is
+seeded here, `realtime-dev` (`select external_id from _realtime.tenants`).
+
+Upstream carries that label in the container name — `container_name:
+realtime-dev.supabase-realtime`, with a comment saying the odd name is
+deliberate. `kong.yml` proxies to `http://realtime-dev.supabase-realtime:4000`
+and, because Kong leaves `preserve_host` off, sends the upstream hostname as
+the Host. The name is the tenant.
+
+Renaming the container to `justgo-supabase-realtime` therefore killed
+`/realtime/v1`: Kong could not resolve the name at all. The fix is a
+**network alias** on the realtime service, not a change to `kong.yml` —
+the prefixed container name has to stay for the isolation above.
+
+Do not "fix" it by pointing Kong at `realtime:4000`. That resolves, and
+then fails: measured from inside the network, with the anon key attached,
+
+| upstream Host | realtime answers |
+|---|---|
+| `realtime` | **403 Forbidden** — no such tenant |
+| `realtime-dev.supabase-realtime` | **101 Switching Protocols** |
+
+A DNS name that resolves is not the same as a tenant that exists.
+
+
 ## Run
 
 ```sh
