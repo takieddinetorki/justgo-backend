@@ -1,4 +1,5 @@
 import {
+  MILEAGE_COMPLIANCE_PORT,
   PARTY_DIRECTORY_PORT,
   SELLER_IDENTITY_PORT,
   SUPPLIER_TARGETING_PORT,
@@ -64,12 +65,20 @@ describe('TargetingModule', () => {
     ReservationsService injects the directory ports outright: a workshop
     calendar that silently loses its customers is the exact failure mode
     this module exists to prevent.
+
+    MILEAGE_COMPLIANCE_PORT is the same bet with a sharper edge. It is
+    injected by MileageUpToDateGuard, which guards endpoints inside the
+    requests, orders and reservations modules - and a GUARD that resolves
+    its port to null is a lock that silently opens. That is worse than
+    having no lock, because it looks like one. Non-optional there, and
+    pinned here.
   */
   it('exports every seam a platform module injects', () => {
     const exported = mod.exports ?? [];
     expect(exported).toContain(SELLER_IDENTITY_PORT);
     expect(exported).toContain(PARTY_DIRECTORY_PORT);
     expect(exported).toContain(VEHICLE_DIRECTORY_PORT);
+    expect(exported).toContain(MILEAGE_COMPLIANCE_PORT);
   });
 
   it('provides each of them against its token', () => {
@@ -78,5 +87,6 @@ describe('TargetingModule', () => {
     );
     expect(tokens).toContain(PARTY_DIRECTORY_PORT);
     expect(tokens).toContain(VEHICLE_DIRECTORY_PORT);
+    expect(tokens).toContain(MILEAGE_COMPLIANCE_PORT);
   });
 });
