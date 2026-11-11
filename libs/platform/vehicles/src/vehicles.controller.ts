@@ -7,12 +7,18 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentAuth, RequirePermissions, type AuthContext } from '@justgo/auth';
 import { asId, ValidationError, type VehicleId } from '@justgo/kernel';
 import { VEHICLES_PORT, type VehiclesPort } from './contract/vehicles.port';
-import type { HealthEntryDTO, MaintenanceTaskDTO, VehicleDTO } from './contract/dto';
+import type {
+  HealthEntryDTO,
+  MaintenanceTaskDTO,
+  MileageHistoryEntryDTO,
+  VehicleDTO,
+} from './contract/dto';
 
 const addSchema = z
   .object({
@@ -103,6 +109,29 @@ export class VehiclesController {
     const parsed = mileageSchema.safeParse(body);
     if (!parsed.success) throw new ValidationError('Invalid mileage', { issues: parsed.error.issues });
     return this.vehicles.setMileage(auth.accountId, asId<VehicleId>(id), parsed.data.mileageKm);
+  }
+
+  /**
+   * Every reading this car has had, newest first.
+   *
+   * The owner can see it because the owner is the one who cannot lower a
+   * value: when a correction is needed they have to be able to point at
+   * the figure that is wrong and when it was entered.
+   */
+  @Get(':id/mileage-history')
+  @RequirePermissions('vehicle.manage')
+  async mileageHistory(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+  ): Promise<{ items: MileageHistoryEntryDTO[] }> {
+    return {
+      items: await this.vehicles.listMileageHistory(
+        auth.accountId,
+        asId<VehicleId>(id),
+        limit ? Number(limit) : undefined,
+      ),
+    };
   }
 
   @Get(':id/health')

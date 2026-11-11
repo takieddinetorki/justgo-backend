@@ -31,4 +31,34 @@ export interface ReservationStatusChangedV1 {
   slotStart?: string;
   slotEnd?: string;
   vehicleId?: string | null;
+  /** Present once the booking has been priced. */
+  amountMinor?: number | null;
+  currency?: string | null;
+}
+
+export const RESERVATION_CHARGED = 'reservations.ReservationCharged';
+/**
+ * A service was performed AND PRICED. The facture is issued off this.
+ *
+ * Separate from the status change on purpose. "Finished" and "paid for"
+ * are different facts: a booking can be completed with no charge at all
+ * (goodwill, warranty, a job that turned out not to be needed), and a
+ * charge can be stated minutes after the completion rather than with it.
+ * A consumer that has to tell those apart from a status transition ends
+ * up re-deriving the amount from a stream that also carries rejections
+ * and reschedules.
+ *
+ * `amountMinor` is always a positive integer here — a zero charge emits
+ * nothing, because a facture for nothing is not a document anyone wants.
+ */
+export interface ReservationChargedV1 {
+  reservationId: string;
+  clientAccountId: string;
+  supplierId: string;
+  amountMinor: number;
+  currency: string;
+  serviceTypeKey: string;
+  slotStart: string;
+  slotEnd: string;
+  vehicleId: string | null;
 }

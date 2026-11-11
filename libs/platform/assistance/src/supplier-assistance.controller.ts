@@ -5,7 +5,25 @@ import { ForbiddenError, ValidationError } from '@justgo/kernel';
 import { ASSISTANCE_PORT, type AssistancePort } from './contract/assistance.port';
 import type { AssistanceRequestDTO } from './contract/dto';
 
-const actionSchema = z.object({ action: z.enum(['accept', 'en_route', 'complete']) }).strict();
+const actionSchema = z
+  .object({
+    action: z.enum(['accept', 'en_route', 'complete', 'charge']),
+    /**
+     * What the call-out cost, integer minor units. Optional on
+     * `complete`, required on `charge` — the price of a tow depends on
+     * the distance actually driven, so it often lands after the job is
+     * closed rather than with it.
+     */
+    amountMinor: z.number().int().nonnegative().optional(),
+    currency: z.string().length(3).regex(/^[A-Z]{3}$/).optional(),
+  })
+  .strict()
+  .refine((v) => v.action !== 'charge' || v.amountMinor !== undefined, {
+    message: 'charge requires amountMinor',
+  })
+  .refine((v) => v.amountMinor === undefined || v.currency !== undefined, {
+    message: 'amountMinor requires currency',
+  });
 
 /**
  * Supplier dispatch endpoints (§15 supplier). Dispatch MATCHING (who is
@@ -35,7 +53,19 @@ export class SupplierAssistanceController {
       case 'en_route':
         return this.assistance.advance(sid, id, 'en_route');
       case 'complete':
-        return this.assistance.advance(sid, id, 'completed');
+        return this.assistance.advance(
+          sid,
+          id,
+          'completed',
+          parsed.data.amountMinor === undefined
+            ? undefined
+            : { amountMinor: parsed.data.amountMinor, currency: parsed.data.currency as string },
+        );
+      case 'charge':
+        return this.assistance.charge(sid, id, {
+          amountMinor: parsed.data.amountMinor as number,
+          currency: parsed.data.currency as string,
+        });
     }
   }
 }

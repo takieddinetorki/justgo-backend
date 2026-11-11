@@ -1,6 +1,7 @@
 import { Pool, type PoolClient } from 'pg';
 import {
   asId,
+  BusinessRuleError,
   NotFoundError,
   type AccountId,
   type Uuid,
@@ -14,11 +15,20 @@ import type {
   HealthStatus,
   MaintenanceStatus,
   MaintenanceTaskDTO,
+  MileageHistoryEntryDTO,
+  MileageSource,
+  NotificationAccessDTO,
   UpdateVehicleDTO,
   VehicleDTO,
 } from '../contract/dto';
 import { MAINTENANCE_DUE, VEHICLE_ADDED } from '../contract/events';
 import { isMaintenanceDue } from '../domain/maintenance';
+import {
+  MILEAGE_LOWER,
+  MILEAGE_UPDATE_PERIOD_DAYS,
+  mileageDueAt,
+  mileageGoesBackwards,
+} from '../domain/mileage';
 
 interface VehicleRow {
   id: string;
@@ -36,6 +46,19 @@ interface VehicleRow {
   health_status: string;
   photo_url: string | null;
   created_at: Date;
+  mileage_updated_at: Date;
+  /** Computed by V_COLS against the database clock, never in JS. */
+  mileage_update_required: boolean;
+}
+
+interface MileageRow {
+  id: string;
+  vehicle_id: string;
+  previous_km: number | null;
+  new_km: number;
+  source: string;
+  actor_account_id: string | null;
+  recorded_at: Date;
 }
 
 interface TaskRow {
@@ -60,8 +83,17 @@ interface HealthRow {
   at: Date;
 }
 
+/*
+  `mileage_update_required` is computed HERE, in every read, by the
+  database. The comparison has to happen against the same clock that
+  wrote `mileage_updated_at`, or a few seconds of drift between Postgres
+  and whichever API container answered decides whether somebody is locked
+  out of their notifications - and decides it differently per container.
+*/
 const V_COLS = `id, owner_account_id, name, brand, model, year, vin, plate, mileage_km,
-  tecdoc_manufacturer_id, tecdoc_model_id, tecdoc_vehicle_type_id, health_status, photo_url, created_at`;
+  tecdoc_manufacturer_id, tecdoc_model_id, tecdoc_vehicle_type_id, health_status, photo_url, created_at,
+  mileage_updated_at,
+  (mileage_updated_at <= now() - make_interval(days => ${MILEAGE_UPDATE_PERIOD_DAYS})) as mileage_update_required`;
 const T_COLS = `id, vehicle_id, title, interval_km, interval_months, due_at_km, due_date, status, created_at`;
 
 const toBig = (v: string | null): number | null => (v === null ? null : Number(v));
@@ -83,6 +115,20 @@ function toVehicle(r: VehicleRow): VehicleDTO {
     healthStatus: r.health_status as HealthStatus,
     photoUrl: r.photo_url,
     createdAt: r.created_at.toISOString(),
+    mileageUpdatedAt: r.mileage_updated_at.toISOString(),
+    mileageUpdateRequired: r.mileage_update_required,
+  };
+}
+
+function toMileage(r: MileageRow): MileageHistoryEntryDTO {
+  return {
+    id: r.id,
+    vehicleId: asId<VehicleId>(r.vehicle_id),
+    previousKm: r.previous_km,
+    newKm: r.new_km,
+    source: r.source as MileageSource,
+    actorAccountId: r.actor_account_id ? asId<AccountId>(r.actor_account_id) : null,
+    recordedAt: r.recorded_at.toISOString(),
   };
 }
 
@@ -219,14 +265,148 @@ export class PgVehiclesRepository {
     if (res.rowCount === 0) throw new NotFoundError('Vehicle', id);
   }
 
+  /**
+   * Record a reading the OWNER states.
+   *
+   * One transaction, and the first statement takes a row lock. Without it
+   * two taps milliseconds apart both read the old value, both pass the
+   * "not lower" check and both write — and the history ends up holding two
+   * rows that claim the same `previous_km`, one of which is a lie about
+   * what the car read when it was written.
+   *
+   * A refused reading changes NOTHING: not the number, not the date, no
+   * history row. Moving `mileage_updated_at` on a rejection would let a
+   * typo buy another 30 days without a real reading.
+   */
   async setMileage(ownerAccountId: AccountId, id: VehicleId, mileageKm: number): Promise<VehicleDTO> {
-    const res = await this.pool.query<VehicleRow>(
-      `update vehicles.vehicles set mileage_km = $3, updated_at = now()
-       where id = $1 and owner_account_id = $2 returning ${V_COLS}`,
-      [id, ownerAccountId, mileageKm],
+    return this.tx(async (c) => {
+      const current = await c.query<{ mileage_km: number | null }>(
+        `select mileage_km from vehicles.vehicles
+           where id = $1 and owner_account_id = $2 for update`,
+        [id, ownerAccountId],
+      );
+      const row = current.rows[0];
+      if (!row) throw new NotFoundError('Vehicle', id);
+
+      if (mileageGoesBackwards(row.mileage_km, mileageKm)) {
+        throw new BusinessRuleError(
+          MILEAGE_LOWER,
+          'The new mileage cannot be lower than the previously recorded mileage.',
+          { currentKm: row.mileage_km, submittedKm: mileageKm },
+        );
+      }
+
+      const res = await c.query<VehicleRow>(
+        `update vehicles.vehicles
+            set mileage_km = $3, mileage_updated_at = now(), updated_at = now()
+          where id = $1 and owner_account_id = $2 returning ${V_COLS}`,
+        [id, ownerAccountId, mileageKm],
+      );
+
+      await c.query(
+        `insert into vehicles.mileage_history
+           (vehicle_id, previous_km, new_km, source, actor_account_id)
+         values ($1, $2, $3, 'client', $4)`,
+        [id, row.mileage_km, mileageKm, ownerAccountId],
+      );
+
+      return toVehicle(res.rows[0]);
+    });
+  }
+
+  /**
+   * Record a correction SUPPORT states, which may go down.
+   *
+   * The owner cannot lower a value, so a typo — 150 000 for 15 000 — is
+   * permanent from their side and the desk has to be able to fix it. Two
+   * things make that safe to allow: the history row carries
+   * `source = 'support'` with the operator's account id, and
+   * `mileage_updated_at` is NOT touched. The correction fixes the number;
+   * it does not hand the user a fresh 30 days they never earned, and it
+   * does not launder a lower reading into a current one.
+   */
+  async overrideMileage(input: {
+    vehicleId: VehicleId;
+    mileageKm: number;
+    actorAccountId: AccountId;
+  }): Promise<VehicleDTO> {
+    return this.tx(async (c) => {
+      const current = await c.query<{ mileage_km: number | null }>(
+        `select mileage_km from vehicles.vehicles where id = $1 for update`,
+        [input.vehicleId],
+      );
+      const row = current.rows[0];
+      if (!row) throw new NotFoundError('Vehicle', input.vehicleId);
+
+      const res = await c.query<VehicleRow>(
+        `update vehicles.vehicles set mileage_km = $2, updated_at = now()
+          where id = $1 returning ${V_COLS}`,
+        [input.vehicleId, input.mileageKm],
+      );
+
+      await c.query(
+        `insert into vehicles.mileage_history
+           (vehicle_id, previous_km, new_km, source, actor_account_id)
+         values ($1, $2, $3, 'support', $4)`,
+        [input.vehicleId, row.mileage_km, input.mileageKm, input.actorAccountId],
+      );
+
+      return toVehicle(res.rows[0]);
+    });
+  }
+
+  /*
+    The owner check is a JOIN, not a read followed by a filter: a history
+    of somebody else's odometer is a record of how much they drive and
+    when they stopped.
+  */
+  async listMileageHistory(
+    ownerAccountId: AccountId,
+    id: VehicleId,
+    limit = 50,
+  ): Promise<MileageHistoryEntryDTO[]> {
+    const res = await this.pool.query<MileageRow>(
+      `select h.id, h.vehicle_id, h.previous_km, h.new_km, h.source,
+              h.actor_account_id, h.recorded_at
+         from vehicles.mileage_history h
+         join vehicles.vehicles v on v.id = h.vehicle_id
+        where h.vehicle_id = $1 and v.owner_account_id = $2
+        order by h.recorded_at desc limit $3`,
+      [id, ownerAccountId, Math.min(Math.max(limit, 1), 200)],
     );
-    if (!res.rows[0]) throw new NotFoundError('Vehicle', id);
-    return toVehicle(res.rows[0]);
+    return res.rows.map(toMileage);
+  }
+
+  /**
+   * Is this account locked out of its notifications?
+   *
+   * Locked when ANY of its cars is overdue, naming the one overdue
+   * longest so the app can open that car instead of a list. One query,
+   * one clock: every device the account is signed in on gets the same
+   * answer, and all of them clear together the moment a reading is saved.
+   *
+   * An account with no cars is NOT locked. A rule about stale readings
+   * cannot be applied to somebody who has nothing to read.
+   */
+  async notificationAccess(ownerAccountId: AccountId): Promise<NotificationAccessDTO> {
+    const res = await this.pool.query<{ id: string; mileage_updated_at: Date }>(
+      `select id, mileage_updated_at from vehicles.vehicles
+        where owner_account_id = $1
+          and mileage_updated_at <= now() - make_interval(days => ${MILEAGE_UPDATE_PERIOD_DAYS})
+        order by mileage_updated_at asc limit 1`,
+      [ownerAccountId],
+    );
+    const stale = res.rows[0];
+    if (!stale) {
+      return { locked: false, reason: null, vehicleId: null, lastUpdatedAt: null, dueAt: null };
+    }
+    return {
+      locked: true,
+      reason: 'MILEAGE_UPDATE_REQUIRED',
+      vehicleId: asId<VehicleId>(stale.id),
+      lastUpdatedAt: stale.mileage_updated_at.toISOString(),
+      dueAt: mileageDueAt(stale.mileage_updated_at),
+    };
   }
 
   async addTask(id: VehicleId, input: AddMaintenanceTaskDTO): Promise<MaintenanceTaskDTO> {

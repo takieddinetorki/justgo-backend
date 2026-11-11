@@ -1,5 +1,6 @@
 import type { AccountId, ReservationId, SupplierId } from '@justgo/kernel';
 import type {
+  ChargeDTO,
   CreateReservationDTO,
   RescheduleDTO,
   ReservationDTO,
@@ -29,7 +30,16 @@ export interface ReservationsPort {
   accept(supplierId: SupplierId, id: ReservationId): Promise<ReservationDTO>;
   reject(supplierId: SupplierId, id: ReservationId, reason?: string): Promise<ReservationDTO>;
   reschedule(supplierId: SupplierId, id: ReservationId, input: RescheduleDTO): Promise<ReservationDTO>;
-  complete(supplierId: SupplierId, id: ReservationId): Promise<ReservationDTO>;
+  /**
+   * Finish the job, optionally stating the bill in the same call.
+   *
+   * The charge is optional because the supplier app's Terminer button
+   * predates it; `charge` below states the amount afterwards. Either
+   * route ends in the same facture.
+   */
+  complete(supplierId: SupplierId, id: ReservationId, charge?: ChargeDTO): Promise<ReservationDTO>;
+  /** Price a completed job. Write-once: see the repository. */
+  charge(supplierId: SupplierId, id: ReservationId, input: ChargeDTO): Promise<ReservationDTO>;
   cancel(clientAccountId: AccountId, id: ReservationId): Promise<ReservationDTO>;
 }
 

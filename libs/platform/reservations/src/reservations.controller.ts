@@ -1,6 +1,21 @@
-import { Body, Controller, Delete, Get, Inject, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { z } from 'zod';
-import { CurrentAuth, RequirePermissions, type AuthContext } from '@justgo/auth';
+import {
+  CurrentAuth,
+  MileageUpToDateGuard,
+  RequirePermissions,
+  type AuthContext,
+} from '@justgo/auth';
 import { asId, ValidationError, type BranchId, type ReservationId, type SupplierId, type VehicleId } from '@justgo/kernel';
 import { RESERVATIONS_PORT, type ReservationsPort } from './contract/reservations.port';
 import type { ReservationDTO } from './contract/dto';
@@ -36,8 +51,17 @@ export class ReservationsController {
     });
   }
 
+  /*
+    Behind the mileage lock (§ mileage): this list is what the client
+    app turns into notifications, so a stale odometer has to stop it at
+    the server and not only on the screen. A supplier-scoped caller is
+    reading its own work queue, not its notifications - but the lock is
+    computed from the CALLER's own vehicles, and a business account has
+    none, so it is never locked by this. Nothing extra to special-case.
+  */
   @Get()
   @RequirePermissions('reservation.create')
+  @UseGuards(MileageUpToDateGuard)
   async list(
     @CurrentAuth() auth: AuthContext,
     @Query('limit') limit?: string,

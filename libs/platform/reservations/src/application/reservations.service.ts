@@ -21,12 +21,39 @@ import {
 } from '@justgo/contracts';
 import type { ReservationsPort } from '../contract/reservations.port';
 import type {
+  ChargeDTO,
   CreateReservationDTO,
   RescheduleDTO,
   ReservationDTO,
   SupplierReservationDTO,
 } from '../contract/dto';
 import { PgReservationsRepository } from '../infra/pg-reservations.repository';
+
+/**
+ * Money, checked before it reaches a facture.
+ *
+ * Integer minor units only - no floats anywhere near a total (17.4) - and
+ * a three-letter currency, because the facture renderer prints whatever
+ * it is handed and a blank or a 'dzd ' would go out on a tax document.
+ *
+ * Zero is ALLOWED and means exactly that: a job done for nothing. It is
+ * recorded so the calendar can show it was settled, and it issues no
+ * facture, because a facture for 0,00 is not a document anyone needs.
+ */
+function validCharge(charge: ChargeDTO | undefined): ChargeDTO | undefined {
+  if (charge === undefined) return undefined;
+  if (!Number.isSafeInteger(charge.amountMinor) || charge.amountMinor < 0) {
+    throw new ValidationError('amountMinor must be a non-negative integer in minor units', {
+      amountMinor: charge.amountMinor,
+    });
+  }
+  if (!/^[A-Z]{3}$/.test(charge.currency)) {
+    throw new ValidationError('currency must be a 3-letter ISO 4217 code', {
+      currency: charge.currency,
+    });
+  }
+  return charge;
+}
 
 export const RESERVATIONS_REPOSITORY = Symbol('RESERVATIONS_REPOSITORY');
 
@@ -141,8 +168,12 @@ export class ReservationsService implements ReservationsPort {
     return this.repo.transition(id, 'rescheduled', { supplierId }, { reschedule: input });
   }
 
-  complete(supplierId: SupplierId, id: ReservationId): Promise<ReservationDTO> {
-    return this.repo.transition(id, 'completed', { supplierId });
+  complete(supplierId: SupplierId, id: ReservationId, charge?: ChargeDTO): Promise<ReservationDTO> {
+    return this.repo.transition(id, 'completed', { supplierId }, { charge: validCharge(charge) });
+  }
+
+  charge(supplierId: SupplierId, id: ReservationId, input: ChargeDTO): Promise<ReservationDTO> {
+    return this.repo.charge(supplierId, id, validCharge(input) as ChargeDTO);
   }
 
   cancel(clientAccountId: AccountId, id: ReservationId): Promise<ReservationDTO> {

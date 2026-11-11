@@ -21,6 +21,15 @@ export interface ReservationDTO {
   status: ReservationStatus;
   note: string | null;
   createdAt: string;
+  /**
+   * What the supplier charged, in integer minor units. `null` until the
+   * job is finished and priced — and it stays null for a completion that
+   * carried no charge, which is a real outcome and not missing data.
+   */
+  amountMinor: number | null;
+  currency: string | null;
+  /** When the amount was stated, which can be after the completion. */
+  chargedAt: string | null;
 }
 
 /**
@@ -57,4 +66,10 @@ export interface CreateReservationDTO {
 export interface RescheduleDTO {
   slotStart: string;
   slotEnd: string;
+}
+
+/** What a supplier charged for a finished job. */
+export interface ChargeDTO {
+  amountMinor: number;
+  currency: string;
 }

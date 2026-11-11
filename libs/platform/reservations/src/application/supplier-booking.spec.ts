@@ -36,6 +36,9 @@ function booking(over: Partial<ReservationDTO> = {}): ReservationDTO {
     status: 'accepted',
     note: null,
     createdAt: '2026-11-09T23:12:00.000Z',
+    amountMinor: null,
+    currency: null,
+    chargedAt: null,
     ...over,
   };
 }

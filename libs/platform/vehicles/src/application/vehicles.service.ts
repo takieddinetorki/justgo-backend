@@ -7,6 +7,8 @@ import type {
   AddVehicleDTO,
   HealthEntryDTO,
   MaintenanceTaskDTO,
+  MileageHistoryEntryDTO,
+  NotificationAccessDTO,
   UpdateVehicleDTO,
   VehicleDTO,
 } from '../contract/dto';
@@ -77,7 +79,49 @@ export class VehiclesService implements VehiclesPort {
     if (!Number.isInteger(mileageKm) || mileageKm < 0) {
       throw new BusinessRuleError('INVALID_MILEAGE', 'Mileage must be a non-negative integer');
     }
+    /*
+      The "not lower than what we hold" rule is NOT checked here. It needs
+      the current value under a row lock, which only the repository's
+      transaction has — checking it here would read the value, let another
+      request write, and then write over it.
+    */
     return this.repo.setMileage(ownerAccountId, vehicleId, mileageKm);
+  }
+
+  listMileageHistory(
+    ownerAccountId: AccountId,
+    vehicleId: VehicleId,
+    limit?: number,
+  ): Promise<MileageHistoryEntryDTO[]> {
+    return this.repo.listMileageHistory(ownerAccountId, vehicleId, limit);
+  }
+
+  overrideMileage(input: {
+    vehicleId: VehicleId;
+    mileageKm: number;
+    actorAccountId: AccountId;
+    reason: string;
+  }): Promise<VehicleDTO> {
+    if (!Number.isInteger(input.mileageKm) || input.mileageKm < 0) {
+      throw new BusinessRuleError('INVALID_MILEAGE', 'Mileage must be a non-negative integer');
+    }
+    /*
+      A reason is required and goes in the log. Nothing reads it back
+      today, but a correction with no stated cause is indistinguishable
+      from an operator quietly editing an odometer.
+    */
+    if (input.reason.trim().length === 0) {
+      throw new BusinessRuleError('REASON_REQUIRED', 'A mileage correction needs a reason');
+    }
+    this.logger.log(
+      `mileage override on vehicle ${input.vehicleId} -> ${input.mileageKm} by ` +
+        `${input.actorAccountId}: ${input.reason}`,
+    );
+    return this.repo.overrideMileage(input);
+  }
+
+  notificationAccess(accountId: AccountId): Promise<NotificationAccessDTO> {
+    return this.repo.notificationAccess(accountId);
   }
 
   async addMaintenanceTask(

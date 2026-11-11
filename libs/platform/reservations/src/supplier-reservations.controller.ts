@@ -7,14 +7,31 @@ import type { ReservationDTO, SupplierReservationDTO } from './contract/dto';
 
 const actionSchema = z
   .object({
-    action: z.enum(['accept', 'reject', 'reschedule', 'complete']),
+    action: z.enum(['accept', 'reject', 'reschedule', 'complete', 'charge']),
     reason: z.string().max(500).optional(),
     slotStart: z.string().datetime().optional(),
     slotEnd: z.string().datetime().optional(),
+    /**
+     * What the job cost, in integer minor units — 450000 is 4 500,00 DZD.
+     * Optional on `complete`, required on `charge`.
+     */
+    amountMinor: z.number().int().nonnegative().optional(),
+    currency: z.string().length(3).regex(/^[A-Z]{3}$/).optional(),
   })
   .strict()
   .refine((v) => v.action !== 'reschedule' || (v.slotStart && v.slotEnd), {
     message: 'reschedule requires slotStart and slotEnd',
+  })
+  .refine((v) => v.action !== 'charge' || v.amountMinor !== undefined, {
+    message: 'charge requires amountMinor',
+  })
+  /*
+    An amount with no currency is the failure mode that reaches the
+    customer: the facture renders a total with nothing beside it. Caught
+    here, at the edge, as well as by a CHECK constraint on the table.
+  */
+  .refine((v) => v.amountMinor === undefined || v.currency !== undefined, {
+    message: 'amountMinor requires currency',
   });
 
 /** Supplier calendar endpoints (§15 supplier — calendar). */
@@ -76,7 +93,25 @@ export class SupplierReservationsController {
           slotEnd: parsed.data.slotEnd as string,
         });
       case 'complete':
-        return this.reservations.complete(supplierId, rid);
+        return this.reservations.complete(
+          supplierId,
+          rid,
+          parsed.data.amountMinor === undefined
+            ? undefined
+            : { amountMinor: parsed.data.amountMinor, currency: parsed.data.currency as string },
+        );
+      /*
+        Pricing a job that was finished without a figure. The supplier
+        app's existing Terminer button never asked for money, so the bill
+        has to be statable afterwards — and a facture that only exists
+        when the UI happened to collect an amount is not "a facture for
+        every paid interaction".
+      */
+      case 'charge':
+        return this.reservations.charge(supplierId, rid, {
+          amountMinor: parsed.data.amountMinor as number,
+          currency: parsed.data.currency as string,
+        });
     }
   }
 }

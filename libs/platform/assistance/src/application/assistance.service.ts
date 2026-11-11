@@ -1,10 +1,36 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ValidationError, type AccountId, type SupplierId } from '@justgo/kernel';
 import type { AssistancePort } from '../contract/assistance.port';
-import type { AssistanceRequestDTO, CreateAssistanceDTO } from '../contract/dto';
+import type {
+  AssistanceChargeDTO,
+  AssistanceRequestDTO,
+  CreateAssistanceDTO,
+} from '../contract/dto';
 import { PgAssistanceRepository } from '../infra/pg-assistance.repository';
 
 export const ASSISTANCE_REPOSITORY = Symbol('ASSISTANCE_REPOSITORY');
+
+/**
+ * Money, checked before it can reach a facture.
+ *
+ * Integer minor units and a three-letter currency (17.4 - no floats near
+ * a total). Zero is allowed and records a call-out done for nothing; it
+ * issues no facture.
+ */
+function validCharge(charge: AssistanceChargeDTO | undefined): AssistanceChargeDTO | undefined {
+  if (charge === undefined) return undefined;
+  if (!Number.isSafeInteger(charge.amountMinor) || charge.amountMinor < 0) {
+    throw new ValidationError('amountMinor must be a non-negative integer in minor units', {
+      amountMinor: charge.amountMinor,
+    });
+  }
+  if (!/^[A-Z]{3}$/.test(charge.currency)) {
+    throw new ValidationError('currency must be a 3-letter ISO 4217 code', {
+      currency: charge.currency,
+    });
+  }
+  return charge;
+}
 
 @Injectable()
 export class AssistanceService implements AssistancePort {
@@ -33,7 +59,16 @@ export class AssistanceService implements AssistancePort {
     supplierId: SupplierId,
     id: string,
     to: 'en_route' | 'completed',
+    charge?: AssistanceChargeDTO,
   ): Promise<AssistanceRequestDTO> {
-    return this.repo.transition(id, to, { supplierId });
+    return this.repo.transition(id, to, { supplierId }, validCharge(charge));
+  }
+
+  charge(
+    supplierId: SupplierId,
+    id: string,
+    input: AssistanceChargeDTO,
+  ): Promise<AssistanceRequestDTO> {
+    return this.repo.charge(supplierId, id, validCharge(input) as AssistanceChargeDTO);
   }
 }

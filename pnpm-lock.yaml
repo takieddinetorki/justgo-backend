@@ -926,6 +926,9 @@ importers:
 
   libs/shared/auth:
     dependencies:
+      '@justgo/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@justgo/kernel':
         specifier: workspace:*
         version: link:../kernel

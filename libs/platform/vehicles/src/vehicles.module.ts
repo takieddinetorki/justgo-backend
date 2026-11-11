@@ -4,10 +4,12 @@ import { VEHICLES_PORT } from './contract/vehicles.port';
 import { VehiclesService, VEHICLES_REPOSITORY } from './application/vehicles.service';
 import { PgVehiclesRepository } from './infra/pg-vehicles.repository';
 import { VehiclesController } from './vehicles.controller';
+import { NotificationAccessController } from './notification-access.controller';
+import { AdminMileageController } from './admin-mileage.controller';
 
 /** Owns the `vehicles` schema; resolves KType via CATALOGUE_PORT (global). */
 @Module({
-  controllers: [VehiclesController],
+  controllers: [VehiclesController, NotificationAccessController, AdminMileageController],
   providers: [
     {
       provide: VEHICLES_REPOSITORY,

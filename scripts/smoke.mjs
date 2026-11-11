@@ -1588,6 +1588,285 @@ async function main() {
         byNumber.data?.found === true && byNumber.data?.subject === undefined,
         `subject ${JSON.stringify(byNumber.data?.subject)}`);
     }
+
+    /*
+      AND THEN THE MONEY.
+
+      The service was performed and paid for, and until now the platform
+      recorded no amount for it, so no facture could exist. There was
+      nothing wrong with the documents pipeline - there was simply
+      nothing to build a facture FROM. The supplier now states what they
+      charged, and the facture follows.
+    */
+    const completed = await call('PATCH', `/v1/supplier/reservations/${bookingId}`, {
+      token: seller.token,
+      body: { action: 'complete' },
+    });
+    check('the workshop finishes the job', completed.data?.status === 'completed',
+      `status ${completed.status} ${completed.data?.status}`);
+    check('and it is not priced yet, which is honest rather than zero',
+      completed.data?.amountMinor === null && completed.data?.chargedAt === null,
+      `amountMinor ${JSON.stringify(completed.data?.amountMinor)}`);
+
+    const priced = await call('PATCH', `/v1/supplier/reservations/${bookingId}`, {
+      token: seller.token,
+      body: { action: 'charge', amountMinor: 450000, currency: 'DZD' },
+    });
+    check('the bill is stated after the fact', priced.data?.amountMinor === 450000
+      && priced.data?.currency === 'DZD' && Boolean(priced.data?.chargedAt),
+      `status ${priced.status} ${JSON.stringify(priced.data?.amountMinor)}`);
+
+    // Retried request: same figure, accepted, nothing new happens.
+    const retried = await call('PATCH', `/v1/supplier/reservations/${bookingId}`, {
+      token: seller.token,
+      body: { action: 'charge', amountMinor: 450000, currency: 'DZD' },
+    });
+    check('re-sending the same charge is safe', retried.status === 200
+      && retried.data?.amountMinor === 450000, `status ${retried.status}`);
+
+    /*
+      A DIFFERENT figure is refused. The facture is already sealed and in
+      the customer's hands; re-pricing underneath it would leave two
+      truths about one supply. Correcting it is a credit note.
+    */
+    const repriced = await call('PATCH', `/v1/supplier/reservations/${bookingId}`, {
+      token: seller.token,
+      body: { action: 'charge', amountMinor: 900000, currency: 'DZD' },
+    });
+    check('but re-pricing it is refused', repriced.status === 409
+      && repriced.data?.error?.code === 'ALREADY_CHARGED',
+      `status ${repriced.status} ${repriced.data?.error?.code}`);
+
+    const serviceFacture = await eventually('a facture is issued for the service', async () => {
+      const res = await call('GET', '/v1/documents?limit=50', { token: client.token });
+      return (res.data?.items ?? []).find(
+        (d) => d.type === 'invoice' && d.subjectId === bookingId,
+      ) ?? null;
+    });
+
+    if (serviceFacture) {
+      ok('a facture is issued for the service', `${serviceFacture.number}`);
+      const scan = await verifyRetrying(serviceFacture.contentHash);
+      check('it totals what the workshop charged',
+        scan.data?.content?.totalMinor === 450000 && scan.data?.content?.currency === 'DZD',
+        `total ${JSON.stringify(scan.data?.content?.totalMinor)}`);
+      /*
+        buyerName used to be the client's account id, so every facture
+        this platform ever issued was addressed to a UUID. On a tax
+        document the buyer is one of the parties it attests.
+      */
+      const says = (scan.data?.content?.fields ?? []).map((f) => `${f.label}=${f.value}`).join(' | ');
+      check('and is addressed to a person, not a primary key',
+        scan.data?.message?.includes('Riyad Benali') || says.includes('Riyad Benali'),
+        `${says.slice(0, 90)} :: ${String(scan.data?.message).slice(0, 90)}`);
+    }
+
+    /*
+      A job done for nothing is a real outcome - goodwill, warranty, a
+      repair that turned out not to be needed. It is recorded, and it
+      must NOT burn a number out of a gapless fiscal series.
+    */
+    const freebie = await call('POST', '/v1/reservations', {
+      token: client.token,
+      body: {
+        supplierId,
+        serviceTypeKey: 'brake_service',
+        vehicleId: car.data?.id,
+        slotStart: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+        slotEnd: new Date(Date.now() + 3 * 86_400_000 + 3_600_000).toISOString(),
+      },
+    });
+    await call('PATCH', `/v1/supplier/reservations/${freebie.data?.id}`, {
+      token: seller.token, body: { action: 'accept' },
+    });
+    const gratis = await call('PATCH', `/v1/supplier/reservations/${freebie.data?.id}`, {
+      token: seller.token,
+      body: { action: 'complete', amountMinor: 0, currency: 'DZD' },
+    });
+    check('a job done for nothing is recorded as such', gratis.data?.amountMinor === 0,
+      `status ${gratis.status} ${JSON.stringify(gratis.data?.amountMinor)}`);
+
+    const noFacture = await call('GET', '/v1/documents?limit=50', { token: client.token });
+    check('and issues no facture for 0,00',
+      !(noFacture.data?.items ?? []).some(
+        (d) => d.type === 'invoice' && d.subjectId === freebie.data?.id,
+      ),
+      'no invoice for the free job');
+
+    // Charging a booking that is not finished is a conflict, not a 500.
+    const early = await call('PATCH', `/v1/supplier/reservations/${bookingId}`, {
+      token: seller.token,
+      body: { action: 'charge' },
+    });
+    check('a charge with no amount is rejected at the edge', early.status === 400,
+      `status ${early.status}`);
+  }
+
+  /*
+    THE OTHER PAID INTERACTION. A tow is a supply a business makes and
+    gets paid for, and it recorded no money either.
+  */
+  section('a roadside call-out, charged');
+  {
+    const called = await call('POST', '/v1/assistance', {
+      token: client.token,
+      body: { serviceType: 'tow', lat: 36.7538, lng: 3.0588, pickupAddress: 'Rue Hassiba, Alger' },
+    });
+    const jobId = called.data?.id;
+    check('the client calls for a tow', called.status === 201 && called.data?.status === 'requested',
+      `status ${called.status}`);
+
+    const claimed = await call('PATCH', `/v1/supplier/assistance/${jobId}`, {
+      token: seller.token, body: { action: 'accept' },
+    });
+    check('the supplier claims it', claimed.data?.status === 'dispatched', `status ${claimed.status}`);
+
+    await call('PATCH', `/v1/supplier/assistance/${jobId}`, {
+      token: seller.token, body: { action: 'en_route' },
+    });
+
+    /*
+      Priced in the SAME call as the completion here, which is the other
+      of the two routes - the price of a tow depends on the distance
+      actually driven, so it is known exactly when the job closes.
+    */
+    const done = await call('PATCH', `/v1/supplier/assistance/${jobId}`, {
+      token: seller.token,
+      body: { action: 'complete', amountMinor: 800000, currency: 'DZD' },
+    });
+    check('and finishes it with the bill attached',
+      done.data?.status === 'completed' && done.data?.amountMinor === 800000,
+      `status ${done.status} ${JSON.stringify(done.data?.amountMinor)}`);
+
+    const towFacture = await eventually('a facture is issued for the tow', async () => {
+      const res = await call('GET', '/v1/documents?limit=50', { token: client.token });
+      return (res.data?.items ?? []).find((d) => d.type === 'invoice' && d.subjectId === jobId) ?? null;
+    });
+
+    if (towFacture) {
+      ok('a facture is issued for the tow', `${towFacture.number}`);
+      const scan = await verifyRetrying(towFacture.contentHash);
+      check('for the amount charged', scan.data?.content?.totalMinor === 800000,
+        `total ${JSON.stringify(scan.data?.content?.totalMinor)}`);
+      check('and it scans as genuine', scan.data?.authentic === true, `verdict ${scan.data?.verdict}`);
+    }
+
+    /*
+      One facture per supply. The unique index is the real defence, and
+      it is what makes a redelivered event harmless.
+    */
+    const again = await call('PATCH', `/v1/supplier/assistance/${jobId}`, {
+      token: seller.token,
+      body: { action: 'charge', amountMinor: 800000, currency: 'DZD' },
+    });
+    check('re-charging the same amount changes nothing', again.status === 200,
+      `status ${again.status}`);
+
+    const all = await call('GET', '/v1/documents?limit=100', { token: client.token });
+    const forJob = (all.data?.items ?? []).filter((d) => d.type === 'invoice' && d.subjectId === jobId);
+    check('and there is exactly ONE facture for the job', forJob.length === 1,
+      `${forJob.length} factures`);
+  }
+
+  /*
+    THE 30-DAY MILEAGE RULE.
+
+    The client app enforces "update your mileage every 30 days or
+    notifications are locked" and had to fake the date half of it, by
+    writing a JG-MILEAGE:<km> maintenance task after every confirmed
+    update and reading the newest one back. Any client calling the API
+    directly skipped the record entirely, so the rule was a screen and
+    not a rule.
+  */
+  section('mileage: monotonic, dated, and enforced');
+  {
+    const car = await call('POST', '/v1/vehicles', {
+      token: client.token,
+      body: { brand: 'Dacia', model: 'Logan', year: 2016, mileageKm: 120000, resolveTecDoc: false },
+    });
+    const carId = car.data?.id;
+    check('a new car starts its 30-day period now', Boolean(car.data?.mileageUpdatedAt)
+      && car.data?.mileageUpdateRequired === false,
+      `updatedAt ${car.data?.mileageUpdatedAt} required ${car.data?.mileageUpdateRequired}`);
+
+    const up = await call('PATCH', `/v1/vehicles/${carId}/mileage`, {
+      token: client.token, body: { mileageKm: 121500 },
+    });
+    check('a higher reading is accepted', up.data?.mileageKm === 121500, `status ${up.status}`);
+
+    // The app retries with the same value when a confirmation was interrupted.
+    const same = await call('PATCH', `/v1/vehicles/${carId}/mileage`, {
+      token: client.token, body: { mileageKm: 121500 },
+    });
+    check('the same reading again is accepted, because the app retries',
+      same.status === 200 && same.data?.mileageKm === 121500, `status ${same.status}`);
+
+    const down = await call('PATCH', `/v1/vehicles/${carId}/mileage`, {
+      token: client.token, body: { mileageKm: 90000 },
+    });
+    check('a LOWER reading is refused with the code the app looks for',
+      down.status === 422 && down.data?.error?.code === 'MILEAGE_LOWER',
+      `status ${down.status} ${down.data?.error?.code}`);
+
+    const after = await call('GET', `/v1/vehicles/${carId}`, { token: client.token });
+    check('and the refusal changed nothing at all', after.data?.mileageKm === 121500
+      && after.data?.mileageUpdatedAt === same.data?.mileageUpdatedAt,
+      `km ${after.data?.mileageKm}`);
+
+    const history = await call('GET', `/v1/vehicles/${carId}/mileage-history`, { token: client.token });
+    const rows = history.data?.items ?? [];
+    check('every accepted reading is on the record', rows.length === 2
+      && rows.every((r) => r.source === 'client'),
+      `${rows.length} rows: ${rows.map((r) => `${r.previousKm}->${r.newKm}`).join(', ')}`);
+    check('and the refused one is not', !rows.some((r) => r.newKm === 90000),
+      'no row for the rejected value');
+
+    /*
+      Somebody else's odometer history is a record of how much they
+      drive and when they stopped. Refused outright, or empty - never
+      the rows. (`other` is a supplier-owner, so it is the permission
+      that refuses first; the owner check in the query is the second
+      line, and that is the one the unit tests pin.)
+    */
+    const nosy = await call('GET', `/v1/vehicles/${carId}/mileage-history`, { token: other.token });
+    check("another account cannot read somebody else's odometer history",
+      nosy.status >= 400 || (nosy.data?.items ?? []).length === 0,
+      `status ${nosy.status} items ${(nosy.data?.items ?? []).length}`);
+
+    /*
+      The lock. Nothing here is overdue yet, so the honest answer is
+      "not locked" - and the notification-feeding endpoints answer.
+    */
+    const access = await call('GET', '/v1/me/notification-access', { token: client.token });
+    check('a compliant account is not locked', access.status === 200 && access.data?.locked === false,
+      `${JSON.stringify(access.data)}`);
+    for (const path of ['/v1/requests?limit=1', '/v1/reservations?limit=1', '/v1/orders?limit=1']) {
+      const res = await call('GET', path, { token: client.token });
+      check(`${path.split('?')[0]} answers while compliant`, res.status === 200, `status ${res.status}`);
+    }
+
+    /*
+      An account with NO cars must never be locked. A rule about stale
+      readings cannot be applied to somebody who has nothing to read -
+      and `other` is a supplier-owner account with an empty garage,
+      which is also why the guard never locks a business out of its own
+      work queue.
+    */
+    const carless = await call('GET', '/v1/me/notification-access', { token: other.token });
+    check('an account with no cars is never locked', carless.data?.locked === false,
+      `${JSON.stringify(carless.data)}`);
+
+    /*
+      SUPPORT'S CORRECTION. The owner cannot lower a value, so a typo is
+      permanent from their side; the app says "contact JustGo Support".
+      A client token must not be able to do it.
+    */
+    const sneaky = await call('PATCH', `/v1/admin/vehicles/${carId}/mileage`, {
+      token: client.token,
+      body: { mileageKm: 1000, reason: 'I would like my car to look newer' },
+    });
+    check('an owner cannot reach the support override', sneaky.status === 403,
+      `status ${sneaky.status}`);
   }
 
   section('reclamations');

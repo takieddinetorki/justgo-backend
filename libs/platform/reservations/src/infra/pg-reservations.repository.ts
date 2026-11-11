@@ -13,7 +13,11 @@ import {
 } from '@justgo/kernel';
 import { makeEvent, PgOutboxStore } from '@justgo/events';
 import type { CreateReservationDTO, ReservationDTO, ReservationStatus } from '../contract/dto';
-import { RESERVATION_REQUESTED, RESERVATION_STATUS_CHANGED } from '../contract/events';
+import {
+  RESERVATION_CHARGED,
+  RESERVATION_REQUESTED,
+  RESERVATION_STATUS_CHANGED,
+} from '../contract/events';
 import { assertReservationTransition } from '../domain/reservation-state';
 
 interface Row {
@@ -28,10 +32,13 @@ interface Row {
   status: string;
   note: string | null;
   created_at: Date;
+  amount_minor: string | null;
+  currency: string | null;
+  charged_at: Date | null;
 }
 
 const COLS = `id, client_account_id, supplier_id, branch_id, service_type_key, vehicle_id,
-  slot_start, slot_end, status, note, created_at`;
+  slot_start, slot_end, status, note, created_at, amount_minor, currency, charged_at`;
 
 /** Postgres unique-violation SQLSTATE — the double-booking guard fires this. */
 const UNIQUE_VIOLATION = '23505';
@@ -49,6 +56,31 @@ function toDTO(r: Row): ReservationDTO {
     status: r.status as ReservationStatus,
     note: r.note,
     createdAt: r.created_at.toISOString(),
+    // bigint arrives as a string from pg; money is integer minor units.
+    amountMinor: r.amount_minor === null ? null : Number(r.amount_minor),
+    currency: r.currency,
+    chargedAt: r.charged_at ? r.charged_at.toISOString() : null,
+  };
+}
+
+/**
+ * The money half of a completed booking, for the ReservationCharged event.
+ *
+ * Built from the UPDATED row rather than the caller's input, so what the
+ * facture is issued from is what the database actually holds - including
+ * the currency, which may have been set by an earlier call.
+ */
+function chargedPayload(r: Row): Record<string, unknown> {
+  return {
+    reservationId: r.id,
+    clientAccountId: r.client_account_id,
+    supplierId: r.supplier_id,
+    amountMinor: Number(r.amount_minor),
+    currency: r.currency,
+    serviceTypeKey: r.service_type_key,
+    slotStart: r.slot_start.toISOString(),
+    slotEnd: r.slot_end.toISOString(),
+    vehicleId: r.vehicle_id,
   };
 }
 
@@ -158,6 +190,76 @@ export class PgReservationsRepository {
   }
 
   /**
+   * State what a finished job cost, for a booking that was completed
+   * without a figure.
+   *
+   * WHY THIS EXISTS AT ALL rather than forcing the amount into
+   * `complete`. The supplier app has a Terminer button that has never
+   * asked for money, and making the amount mandatory would break every
+   * copy of it in the field. So completion still works bare, and this is
+   * how the bill arrives afterwards — one call, any time.
+   *
+   * WRITE-ONCE. A second charge with the SAME amount is accepted and
+   * emits nothing new, so a retried request is harmless. A second charge
+   * with a DIFFERENT amount is refused: the facture has already been
+   * issued, sealed and handed to the customer, and silently re-pricing
+   * underneath it would leave two different truths about one supply.
+   * Correcting a facture is a credit note, not an UPDATE.
+   */
+  async charge(
+    supplierId: SupplierId,
+    id: ReservationId,
+    input: { amountMinor: number; currency: string },
+  ): Promise<ReservationDTO> {
+    return this.tx(async (c) => {
+      const cur = await c.query<Row>(
+        `select ${COLS} from reservations.reservations
+          where id = $1 and supplier_id = $2 for update`,
+        [id, supplierId],
+      );
+      const row = cur.rows[0];
+      if (!row) throw new NotFoundError('Reservation', id);
+
+      if (row.status !== 'completed') {
+        throw new ConflictError(
+          'RESERVATION_NOT_COMPLETED',
+          'A booking can only be charged once the work is completed',
+          { status: row.status },
+        );
+      }
+
+      if (row.amount_minor !== null) {
+        if (Number(row.amount_minor) === input.amountMinor && row.currency === input.currency) {
+          return toDTO(row);
+        }
+        throw new ConflictError(
+          'ALREADY_CHARGED',
+          'This booking has already been charged; issue a credit note to correct it',
+          { amountMinor: Number(row.amount_minor), currency: row.currency },
+        );
+      }
+
+      const res = await c.query<Row>(
+        `update reservations.reservations
+            set amount_minor = $3, currency = $4, charged_at = now(), updated_at = now()
+          where id = $1 and supplier_id = $2 returning ${COLS}`,
+        [id, supplierId, input.amountMinor, input.currency],
+      );
+
+      if (input.amountMinor > 0) {
+        await this.outbox.appendWith(c, [
+          makeEvent({
+            type: RESERVATION_CHARGED,
+            aggregateId: asId<Uuid>(id),
+            payload: chargedPayload(res.rows[0]),
+          }),
+        ]);
+      }
+      return toDTO(res.rows[0]);
+    });
+  }
+
+  /**
    * Guarded status transition. `by` scopes ownership — supplier-side actions
    * check supplier_id, client-side check client_account_id. Emits
    * ReservationStatusChanged in the same tx (§17.2).
@@ -166,7 +268,16 @@ export class PgReservationsRepository {
     id: ReservationId,
     next: ReservationStatus,
     by: { supplierId?: SupplierId; clientAccountId?: AccountId },
-    opts: { note?: string; reschedule?: { slotStart: string; slotEnd: string } } = {},
+    opts: {
+      note?: string;
+      reschedule?: { slotStart: string; slotEnd: string };
+      /**
+       * What the supplier charged. Only meaningful on the way into
+       * `completed`: a workshop knows the bill when the car is back on
+       * the ground, not when it took the booking.
+       */
+      charge?: { amountMinor: number; currency: string };
+    } = {},
   ): Promise<ReservationDTO> {
     return this.tx(async (c) => {
       const cur = await c.query<Row>(
@@ -193,6 +304,9 @@ export class PgReservationsRepository {
                   slot_start = coalesce($3, slot_start),
                   slot_end = coalesce($4, slot_end),
                   note = coalesce($5, note),
+                  amount_minor = coalesce($6, amount_minor),
+                  currency = coalesce($7, currency),
+                  charged_at = case when $6 is null then charged_at else now() end,
                   updated_at = now()
             where id = $1 returning ${COLS}`,
           [
@@ -201,6 +315,8 @@ export class PgReservationsRepository {
             opts.reschedule?.slotStart ?? null,
             opts.reschedule?.slotEnd ?? null,
             opts.note ?? null,
+            opts.charge?.amountMinor ?? null,
+            opts.charge?.currency ?? null,
           ],
         );
       } catch (error) {
@@ -231,6 +347,29 @@ export class PgReservationsRepository {
             vehicleId: res.rows[0].vehicle_id,
           },
         }),
+        /*
+          A SECOND event when there is money, and only then.
+
+          The status change announces that the work is finished; this one
+          announces that it was PAID FOR, which is a different fact with
+          a different consumer. `documents` issues the facture off this
+          and nothing else, so it never has to re-derive "was there an
+          amount on that completion?" from a status it also receives for
+          rejections and reschedules.
+
+          It is also what makes pricing-after-the-fact work: a supplier
+          who completes first and prices later emits exactly this event
+          from `charge()`, and the facture comes out the same way.
+        */
+        ...(opts.charge && opts.charge.amountMinor > 0
+          ? [
+              makeEvent({
+                type: RESERVATION_CHARGED,
+                aggregateId: asId<Uuid>(id),
+                payload: chargedPayload(res.rows[0]),
+              }),
+            ]
+          : []),
       ]);
       return toDTO(res.rows[0]);
     });

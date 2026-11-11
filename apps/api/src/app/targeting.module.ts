@@ -1,5 +1,6 @@
 import { Module, type DynamicModule } from '@nestjs/common';
 import {
+  MILEAGE_COMPLIANCE_PORT,
   PARTY_DIRECTORY_PORT,
   SELLER_IDENTITY_PORT,
   SUPPLIER_TARGETING_PORT,
@@ -12,6 +13,7 @@ import { SupplierTargetingAdapter } from './supplier-targeting.adapter';
 import { SellerIdentityAdapter } from './seller-identity.adapter';
 import { PartyDirectoryAdapter } from './party-directory.adapter';
 import { VehicleDirectoryAdapter } from './vehicle-directory.adapter';
+import { MileageComplianceAdapter } from './mileage-compliance.adapter';
 
 /**
  * Binds the requests module's fan-out seam to the suppliers module
@@ -61,12 +63,15 @@ export class TargetingModule {
         { provide: PARTY_DIRECTORY_PORT, useExisting: PartyDirectoryAdapter },
         VehicleDirectoryAdapter,
         { provide: VEHICLE_DIRECTORY_PORT, useExisting: VehicleDirectoryAdapter },
+        MileageComplianceAdapter,
+        { provide: MILEAGE_COMPLIANCE_PORT, useExisting: MileageComplianceAdapter },
       ],
       exports: [
         SUPPLIER_TARGETING_PORT,
         SELLER_IDENTITY_PORT,
         PARTY_DIRECTORY_PORT,
         VEHICLE_DIRECTORY_PORT,
+        MILEAGE_COMPLIANCE_PORT,
       ],
     };
   }

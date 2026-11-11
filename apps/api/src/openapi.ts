@@ -401,6 +401,17 @@ function schemas(): Record<string, unknown> {
         vin: { type: 'string', nullable: true },
         plate: { type: 'string', nullable: true, example: '00123-116-16' },
         mileageKm: { type: 'integer', nullable: true, example: 84000 },
+        mileageUpdatedAt: {
+          type: 'string',
+          format: 'date-time',
+          description:
+            'When the odometer was last STATED, by the server clock. Not `updatedAt`, which moves when the car is renamed or its health status changes.',
+        },
+        mileageUpdateRequired: {
+          type: 'boolean',
+          description:
+            'True once the reading is 30 days old or more. Computed in SQL against the database clock, so every device agrees and it clears everywhere the instant a valid reading is saved.',
+        },
         tecdocVehicleTypeId: { type: 'integer', nullable: true },
         tecdocManufacturerId: { type: 'integer', nullable: true },
         tecdocModelId: { type: 'integer', nullable: true },
@@ -410,6 +421,36 @@ function schemas(): Record<string, unknown> {
         },
         photoUrl: { type: 'string', nullable: true },
         createdAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    MileageHistoryEntry: {
+      type: 'object',
+      description:
+        'One recorded reading. `source` separates what the owner confirmed from what support typed in on their behalf — they are not the same evidence.',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        vehicleId: { type: 'string', format: 'uuid' },
+        previousKm: { type: 'integer', nullable: true, example: 84000 },
+        newKm: { type: 'integer', example: 86500 },
+        source: { type: 'string', enum: ['client', 'support'] },
+        actorAccountId: { type: 'string', format: 'uuid', nullable: true },
+        recordedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+    NotificationAccess: {
+      type: 'object',
+      description:
+        'Whether this account may be shown its notifications. Locked when ANY of its cars has a reading 30 days old or more; it names the one overdue longest so the app can open that car rather than a list. An account with no cars is never locked.',
+      properties: {
+        locked: { type: 'boolean' },
+        reason: {
+          type: 'string',
+          enum: ['MILEAGE_UPDATE_REQUIRED'],
+          nullable: true,
+        },
+        vehicleId: { type: 'string', format: 'uuid', nullable: true },
+        lastUpdatedAt: { type: 'string', format: 'date-time', nullable: true },
+        dueAt: { type: 'string', format: 'date-time', nullable: true },
       },
     },
     MaintenanceTask: {
@@ -458,6 +499,20 @@ function schemas(): Record<string, unknown> {
           enum: ['requested', 'dispatched', 'en_route', 'completed', 'cancelled'],
         },
         createdAt: { type: 'string', format: 'date-time' },
+        amountMinor: {
+          type: 'integer',
+          nullable: true,
+          example: 450000,
+          description:
+            'What the supplier charged, in integer MINOR units — 450000 is 4 500,00 DZD. Null until the job is priced, and it stays null for a completion that carried no charge, which is a real outcome and not missing data.',
+        },
+        currency: { type: 'string', minLength: 3, maxLength: 3, nullable: true, example: 'DZD' },
+        chargedAt: {
+          type: 'string',
+          format: 'date-time',
+          nullable: true,
+          description: 'When the amount was stated, which can be after the completion.',
+        },
       },
     },
     Reservation: {
@@ -477,6 +532,20 @@ function schemas(): Record<string, unknown> {
         },
         note: { type: 'string', nullable: true },
         createdAt: { type: 'string', format: 'date-time' },
+        amountMinor: {
+          type: 'integer',
+          nullable: true,
+          example: 450000,
+          description:
+            'What the supplier charged, in integer MINOR units — 450000 is 4 500,00 DZD. Null until the job is priced, and it stays null for a completion that carried no charge, which is a real outcome and not missing data.',
+        },
+        currency: { type: 'string', minLength: 3, maxLength: 3, nullable: true, example: 'DZD' },
+        chargedAt: {
+          type: 'string',
+          format: 'date-time',
+          nullable: true,
+          description: 'When the amount was stated, which can be after the completion.',
+        },
       },
     },
     SupplierReservation: {
@@ -1265,6 +1334,41 @@ function enrich(doc: OpenAPIObject): void {
     summary: 'Get (and self-provision) the current account',
     responses: { ...ok(ref('Account')), ...errors() },
   });
+  set('/v1/me/notification-access', 'get', {
+    tags: ['Me'],
+    summary: 'May this account be shown its notifications?',
+    description:
+      'The client app hides notifications when any of the account’s cars has not had its mileage stated for 30 days. This is the same answer computed server-side, where a client cannot skip it, and it names the car that caused the lock so the app can open that car rather than a list.\n\n' +
+      'Locked if **any** vehicle is overdue; an account with no vehicles is never locked. Because it is computed from database state on every call, it clears on every device at once the moment a valid reading is saved — there is no per-device state.\n\n' +
+      'READABLE WHILE LOCKED, deliberately: this is what tells the app why it is locked.',
+    responses: { ...ok(ref('NotificationAccess')), ...errors() },
+  });
+  set('/v1/admin/vehicles/{id}/mileage', 'patch', {
+    tags: ['Ops'],
+    summary: 'Correct an odometer (support)',
+    description:
+      'Owners cannot lower a reading, so a fat-fingered 150 000 is permanent from their side — this is how the support desk honours the app’s own “contact JustGo Support”.\n\n' +
+      'Gated on `support.mileage.override` rather than `platform.admin`: fixing an odometer should not require the ability to void documents and suspend businesses. May set a LOWER value. Writes a history row with `source: "support"` and the operator’s account id, and does **not** touch `mileageUpdatedAt` — a correction fixes the number without handing the user 30 days they never earned.',
+    parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+    requestBody: body(
+      {
+        type: 'object',
+        required: ['mileageKm', 'reason'],
+        properties: {
+          mileageKm: { type: 'integer', minimum: 0, example: 15000 },
+          reason: {
+            type: 'string',
+            minLength: 3,
+            maxLength: 500,
+            description:
+              'Required. Lowering a recorded odometer is the most abusable write in this module, so every one of them carries a stated cause against the operator’s account id.',
+          },
+        },
+      },
+      { mileageKm: 15000, reason: 'Client typed 150000 instead of 15000 (ticket 4471)' },
+    ),
+    responses: { ...ok(ref('Vehicle')), ...errors() },
+  });
   set('/v1/me', 'put', {
     tags: ['Me'],
     summary: 'Update the current profile',
@@ -1954,7 +2058,11 @@ function enrich(doc: OpenAPIObject): void {
   set('/v1/vehicles/{id}/mileage', 'patch', {
     tags: ['Client · Garage'],
     summary: 'Record the odometer',
-    description: 'Advancing mileage is what makes interval-based maintenance tasks fall due.',
+    description:
+      'Advancing mileage is what makes interval-based maintenance tasks fall due, and what clears the notification lock.\n\n' +
+      'A reading may not go DOWN: a lower value is **422 `MILEAGE_LOWER`** and changes nothing at all — not the number, not `mileageUpdatedAt`, no history row — so a typo cannot buy another 30 days. An EQUAL value is accepted, because the app retries with the same figure when a confirmation was interrupted.\n\n' +
+      'A correction downwards is `PATCH /v1/admin/vehicles/{id}/mileage`, under `support.mileage.override`.\n\n' +
+      'Reachable while the account is locked — this is the endpoint that unlocks it.',
     requestBody: body(
       {
         type: 'object',
@@ -1964,6 +2072,16 @@ function enrich(doc: OpenAPIObject): void {
       { mileageKm: 86500 },
     ),
     responses: { ...ok(ref('Vehicle')), ...errors() },
+  });
+  set('/v1/vehicles/{id}/mileage-history', 'get', {
+    tags: ['Client · Garage'],
+    summary: 'Every reading this car has had',
+    description:
+      'Newest first. The owner can see it because the owner is the one who cannot lower a value: to ask support for a correction they have to be able to point at the figure that is wrong and when it was entered.',
+    parameters: [
+      { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
+    ],
+    responses: { ...ok(listOf('MileageHistoryEntry')), ...errors() },
   });
   set('/v1/vehicles/{id}/health', 'get', {
     tags: ['Client · Garage'],
@@ -2754,34 +2872,60 @@ function enrich(doc: OpenAPIObject): void {
   });
   set('/v1/supplier/reservations/{id}', 'patch', {
     tags: ['Supplier · Calendar'],
-    summary: 'Accept / reject / reschedule / complete',
-    description: 'A reschedule must carry both slotStart and slotEnd.',
+    summary: 'Accept / reject / reschedule / complete / charge',
+    description:
+      'A reschedule must carry both slotStart and slotEnd.\n\n' +
+      '**Charging, and the facture.** Pass `amountMinor` + `currency` with `complete` to price the job in the same call, or send `action: "charge"` afterwards — the supplier app’s existing Terminer button never asked for money, so both routes exist and both end in the same facture. A charge above zero issues a sealed, numbered **facture** to the client within seconds (see `GET /v1/documents`).\n\n' +
+      '`amountMinor: 0` is allowed and records a job done for nothing; it issues no facture, because a document for 0,00 is not one anybody needs.\n\n' +
+      '**Write-once.** Repeating the same amount is accepted and changes nothing, so a retry is safe. A DIFFERENT amount is **409 `ALREADY_CHARGED`**: the facture has already been sealed and handed to the customer, and correcting it is a credit note, not an UPDATE. Charging a booking that is not completed is **409 `RESERVATION_NOT_COMPLETED`**.',
     requestBody: body(
       {
         type: 'object',
         required: ['action'],
         properties: {
-          action: { type: 'string', enum: ['accept', 'reject', 'reschedule', 'complete'] },
+          action: {
+            type: 'string',
+            enum: ['accept', 'reject', 'reschedule', 'complete', 'charge'],
+          },
           reason: { type: 'string', maxLength: 500 },
           slotStart: { type: 'string', format: 'date-time' },
           slotEnd: { type: 'string', format: 'date-time' },
+          amountMinor: {
+            type: 'integer',
+            minimum: 0,
+            example: 450000,
+            description: 'Integer minor units. Required with `charge`, optional with `complete`.',
+          },
+          currency: { type: 'string', minLength: 3, maxLength: 3, example: 'DZD' },
         },
       },
-      { action: 'accept' },
+      { action: 'complete', amountMinor: 450000, currency: 'DZD' },
     ),
     responses: { ...ok(ref('Reservation')), ...errors() },
   });
   set('/v1/supplier/assistance/{id}', 'patch', {
     tags: ['Supplier · Calendar'],
-    summary: 'Claim and advance a roadside job',
-    description: 'Requires a supplier-scoped token.',
+    summary: 'Claim, advance and charge a roadside job',
+    description:
+      'Requires a supplier-scoped token.\n\n' +
+      '**Charging, and the facture.** Same two routes as a booking: `amountMinor` + `currency` with `complete`, or `action: "charge"` afterwards — the price of a tow depends on the distance actually driven, so it often lands after the job is closed. A charge above zero issues a sealed, numbered **facture**; `0` records a courtesy call-out and issues none.\n\n' +
+      'Write-once: the same amount again is accepted, a different one is **409 `ALREADY_CHARGED`**. Charging an unfinished job is **409 `ASSISTANCE_NOT_COMPLETED`**.',
     requestBody: body(
       {
         type: 'object',
         required: ['action'],
-        properties: { action: { type: 'string', enum: ['accept', 'en_route', 'complete'] } },
+        properties: {
+          action: { type: 'string', enum: ['accept', 'en_route', 'complete', 'charge'] },
+          amountMinor: {
+            type: 'integer',
+            minimum: 0,
+            example: 800000,
+            description: 'Integer minor units. Required with `charge`, optional with `complete`.',
+          },
+          currency: { type: 'string', minLength: 3, maxLength: 3, example: 'DZD' },
+        },
       },
-      { action: 'accept' },
+      { action: 'complete', amountMinor: 800000, currency: 'DZD' },
     ),
     responses: { ...ok(ref('AssistanceRequest')), ...errors() },
   });

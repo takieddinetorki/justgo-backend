@@ -15,6 +15,10 @@ export interface AssistanceRequestDTO {
   assignedSupplierId: SupplierId | null;
   status: AssistanceStatus;
   createdAt: string;
+  /** What the supplier charged, integer minor units; null until priced. */
+  amountMinor: number | null;
+  currency: string | null;
+  chargedAt: string | null;
 }
 
 export interface CreateAssistanceDTO {
@@ -24,4 +28,10 @@ export interface CreateAssistanceDTO {
   vehicleId?: VehicleId;
   description?: string;
   pickupAddress?: string;
+}
+
+/** What a supplier charged for a finished call-out. */
+export interface AssistanceChargeDTO {
+  amountMinor: number;
+  currency: string;
 }

@@ -359,6 +359,9 @@ All require the `vehicle.manage` permission (client/fleet roles).
 - **`PATCH /v1/vehicles/{id}`** body `{ name?, plate?, photoUrl?, healthStatus? }` → `Vehicle`.
 - **`DELETE /v1/vehicles/{id}`** → `{ deleted:true }` (cascades tasks + health).
 - **`PATCH /v1/vehicles/{id}/mileage`** body `{ mileageKm }` → `Vehicle`.
+  **A reading may not go down** — see *The 30-day mileage rule* below.
+- **`GET /v1/vehicles/{id}/mileage-history?limit=`** → `{ items: MileageHistoryEntry[] }`,
+  newest first.
 - **`GET /v1/vehicles/{id}/maintenance`** → `{ items: MaintenanceTask[] }`.
 - **`POST /v1/vehicles/{id}/maintenance`** body
   `{ title, intervalKm?, intervalMonths?, dueAtKm?, dueDate? }` → `MaintenanceTask`.
@@ -371,11 +374,65 @@ All require the `vehicle.manage` permission (client/fleet roles).
 ```json
 { "id":"uuid","ownerAccountId":"uuid","name":"Daily","brand":"Renault",
   "model":"Clio","year":2015,"vin":null,"plate":"AB-123-CD","mileageKm":90000,
+  "mileageUpdatedAt":"2026-11-11T09:00:00.000Z","mileageUpdateRequired":false,
   "tecdocVehicleTypeId":12345,"tecdocManufacturerId":11,"tecdocModelId":22,
   "healthStatus":"good","photoUrl":null,"createdAt":"…" }
 ```
 `healthStatus` ∈ `optimal | good | warning | critical | urgent`.
 `MaintenanceTask.status` ∈ `pending | due | done | dismissed`.
+
+#### The 30-day mileage rule
+
+The server owns this now. You can stop writing the `JG-MILEAGE:<km>`
+maintenance task as soon as `mileageUpdatedAt` comes back from
+`PATCH /mileage`; the rows already written are harmless and can stay.
+
+**A reading may not go down.** A lower value is `422 MILEAGE_LOWER` and
+changes **nothing at all** — not the number, not `mileageUpdatedAt`, no
+history row — so a typo cannot buy another 30 days. An **equal** value is
+accepted on purpose, because you retry with the same figure when a
+confirmation was interrupted.
+
+**`mileageUpdatedAt` is the date of the READING.** Not `updatedAt`, which
+moves when a car is renamed or its health status changes.
+**`mileageUpdateRequired`** is computed in SQL against the database clock,
+so every container and every device agrees, and it clears everywhere the
+instant a valid reading is saved. Prefer both fields over anything you
+derive yourself.
+
+A correction downwards is support's: `PATCH /v1/admin/vehicles/{id}/mileage`
+with `{ mileageKm, reason }` under `support.mileage.override`. It may lower
+the value, records `source:"support"` with the operator's id, and does
+**not** touch `mileageUpdatedAt`.
+
+`MileageHistoryEntry`:
+```json
+{ "id":"uuid","vehicleId":"uuid","previousKm":120000,"newKm":121500,
+  "source":"client","actorAccountId":"uuid","recordedAt":"…" }
+```
+`source` ∈ `client | support` — what the owner confirmed and what the desk
+typed in on their behalf are not the same evidence.
+
+#### The notification lock
+
+- **`GET /v1/me/notification-access`** →
+  ```json
+  { "locked":true, "reason":"MILEAGE_UPDATE_REQUIRED", "vehicleId":"uuid",
+    "lastUpdatedAt":"…", "dueAt":"…" }
+  ```
+  Locked when **any** of the account's cars is overdue; it names the one
+  overdue longest so you can open that car instead of a list. An account
+  with **no cars is never locked**. Readable while locked — it is what
+  tells you why.
+
+The lock is also enforced on the endpoints that feed your notifications:
+`GET /v1/requests`, `GET /v1/reservations` and `GET /v1/orders` answer
+**403 `MILEAGE_UPDATE_REQUIRED`**, with `vehicleId` and `dueAt` in
+`error.details`. Branch on the **code**, not on the 403: plain `FORBIDDEN`
+means "you may not", this one means "do this and you may".
+
+Everything needed to get out stays reachable while locked: sign-in,
+`GET /v1/vehicles*`, the mileage endpoints, and the route above.
 
 ### Client · Discovery — Phase 2 (public)
 - **`GET /v1/discovery/suppliers?lat=&lng=&radius=&vertical=&category=&limit=`** →
@@ -647,6 +704,12 @@ their service types via **`GET /v1/catalogue/service-types?vertical=workshop`**
 ```
 Status: `pending → accepted | rejected | rescheduled`; `accepted → completed | cancelled`.
 
+Once the job is finished and priced, `Reservation` carries
+`amountMinor`, `currency` and `chargedAt`, and a **facture** appears in
+`GET /v1/documents` for it. `amountMinor` is `null` until then — including
+for a job completed at no charge, which is a real outcome and not missing
+data. `0` means exactly that and issues no facture.
+
 ### Client · Assistance (roadside) — Phase 3
 - **`POST /v1/assistance`** body
   `{ serviceType:"breakdown|tow|battery|tyre|fuel|lockout", lat, lng, vehicleId?, description?, pickupAddress? }`
@@ -657,6 +720,10 @@ Status: `pending → accepted | rejected | rescheduled`; `accepted → completed
 `AssistanceRequest` status: `requested → dispatched → en_route → completed`; any
 live state `→ cancelled`. (Which supplier is offered a job — dispatch matching —
 is not yet finalised; the request/status flow is live.)
+
+`AssistanceRequest` also carries `amountMinor`, `currency` and `chargedAt`
+once the call-out is priced, with a **facture** in `GET /v1/documents` for
+it. Same rules as a booking.
 
 ### Client · Marketplace (used cars) — Phase 3
 - **`GET /v1/marketplace/listings`** → `{ items: Listing[] }` (public; published
@@ -802,7 +869,7 @@ and `listing.bid.declined` (buyer). A decline carries
   scanned confirmation lands** — see Documents below. A booking made with
   another business is **404**, never 403.
 - **`PATCH /v1/supplier/reservations/{id}`** body
-  `{ action:"accept|reject|reschedule|complete", reason?, slotStart?, slotEnd? }`
+  `{ action:"accept|reject|reschedule|complete|charge", reason?, slotStart?, slotEnd?, amountMinor?, currency? }`
   → `Reservation`. `reschedule` needs `slotStart`+`slotEnd`. Needs `reservation.manage`.
 
 A `SupplierReservation` is the booking **plus who is bringing which car**:
@@ -829,9 +896,60 @@ the customer.
 `vehicle` is resolved **owner-scoped on the client named on the booking**, so
 a workshop can only ever see a car that was booked in with it.
 
+#### A facture for every paid interaction
+
+Whenever money reaches a business for a supply it made, the client gets a
+sealed, numbered **facture** — no exceptions, and nothing for you to
+request. What changed is that two of the three paid interactions had no
+amount recorded at all, so there was nothing to build one from.
+
+| paid interaction | priced by | facture subject |
+|---|---|---|
+| a parts order | the accepted quote; completing the order | `order` |
+| a workshop service | `complete` or `charge` below | `reservation` |
+| a roadside call-out | `complete` or `charge` on dispatch | `assistance` |
+
+A marketplace car sale is **not** on this list. A private individual
+selling their own car is not making a business supply, and a numbered
+facture out of our fiscal series for their transaction would be inventing
+a tax document for something we are not party to.
+
+**Two ways to state the bill**, because the Terminer button never asked
+for money and does not have to start:
+
+```json
+PATCH /v1/supplier/reservations/{id}
+{ "action":"complete", "amountMinor":450000, "currency":"DZD" }
+```
+```json
+PATCH /v1/supplier/reservations/{id}
+{ "action":"charge", "amountMinor":450000, "currency":"DZD" }
+```
+
+`amountMinor` is **integer minor units** — `450000` is 4 500,00 DZD — and
+is the price the client agreed to pay, **including tax**; HT and TVA are
+derived backwards from it on the document. `0` records a job done for
+nothing and issues no facture.
+
+**Write-once.** Sending the same amount again is accepted and changes
+nothing, so retries are safe. A **different** amount is
+`409 ALREADY_CHARGED`: the facture is already sealed and in the customer's
+hands, and correcting it is a credit note, not an `UPDATE`. Charging a
+booking that is not completed is `409 RESERVATION_NOT_COMPLETED`.
+
+The facture is issued asynchronously, within seconds, and appears in the
+client's `GET /v1/documents`. It is **not** issued if the supplier's fiscal
+profile is incomplete — NIF, NIS, RC and the article d'imposition are
+mandatory mentions, and a facture without them is not a tax document. Fill
+them in with `PATCH /v1/supplier/fiscal`.
+
 ### Supplier · Dispatch (assistance) — Phase 3 (supplier-scoped)
-- **`PATCH /v1/supplier/assistance/{id}`** body `{ action:"accept|en_route|complete" }`
+- **`PATCH /v1/supplier/assistance/{id}`** body
+  `{ action:"accept|en_route|complete|charge", amountMinor?, currency? }`
   → `AssistanceRequest`. `accept` claims the job. Needs `reservation.manage`.
+  Charging works exactly as it does for a booking — see *A facture for every
+  paid interaction* below. `charge` requires `amountMinor`; an unfinished job
+  is `409 ASSISTANCE_NOT_COMPLETED`.
 
 ### Supplier · Catalogue (products / offers / deals) — Phase 3 (supplier-scoped)
 All need `supplier.catalog.manage`.

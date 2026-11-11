@@ -14,7 +14,7 @@ import { Ed25519DocumentSigner } from './infra/ed25519-signer';
 import { PgDocumentsRepository } from './infra/pg-documents.repository';
 import { DocumentsController } from './documents.controller';
 import { ReservationDocumentReactor } from './application/reservation-document.reactor';
-import { InvoiceReactor } from './application/invoice.reactor';
+import { FactureReactor } from './application/facture.reactor';
 
 export interface DocumentsModuleOptions {
   /** PKCS#8 PEM. Omit ONLY in dev — see the warning in the factory. */
@@ -137,7 +137,7 @@ export class DocumentsModule {
         { provide: DOCUMENTS_PORT, useClass: DocumentsService },
         DocumentsService,
         ReservationDocumentReactor,
-        InvoiceReactor,
+        FactureReactor,
       ],
       exports: [DOCUMENTS_PORT, DOCUMENT_SIGNER],
     };
