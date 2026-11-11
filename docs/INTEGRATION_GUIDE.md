@@ -1347,6 +1347,7 @@ reversal document. The status flips and the verifier starts saying so.
 { "id":"uuid","type":"invoice","number":"FA-2026-000001",
   "subjectType":"order","subjectId":"uuid",
   "issuedToAccountId":"uuid","supplierId":"uuid","status":"issued",
+  "contentHash":"96340dd3…",
   "sha256":"9f2b…","algo":"ed25519","keyId":"k1","signatureFormat":"detached",
   "byteSize":3001,"issuedAt":"…","voidedAt":null,"voidReason":null }
 ```
