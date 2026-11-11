@@ -987,8 +987,8 @@ To show a total without downloading the PDF, scan it:
   `{ action:"accept|en_route|complete|charge", amountMinor?, currency? }`
   → `AssistanceRequest`. `accept` claims the job. Needs `reservation.manage`.
   Charging works exactly as it does for a booking — see *A facture for every
-  paid interaction* below. `charge` requires `amountMinor`; an unfinished job
-  is `409 ASSISTANCE_NOT_COMPLETED`.
+  paid interaction* under **Supplier · Calendar** above. `charge` requires
+  `amountMinor`; an unfinished job is `409 ASSISTANCE_NOT_COMPLETED`.
 
 ### Supplier · Catalogue (products / offers / deals) — Phase 3 (supplier-scoped)
 All need `supplier.catalog.manage`.
