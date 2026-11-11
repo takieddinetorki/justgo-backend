@@ -2619,7 +2619,7 @@ function enrich(doc: OpenAPIObject): void {
     responses: { ...ok(listOf('Document')), ...errors() },
   });
   set('/v1/supplier/documents', 'get', {
-    tags: ['Documents'],
+    tags: ['Supplier · Business', 'Documents'],
     summary: 'Documents this business has ISSUED — its own ledger',
     description:
       'Requires a supplier-scoped token. `?type=invoice` is the sales ledger: every facture this business has issued, newest first.\n\n' +
@@ -3365,6 +3365,15 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
     .setVersion('1.0.0-phase1')
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'supabase-jwt')
     .addServer('/', 'Current host')
+    /*
+      EVERY tag used by an operation must be declared here, and in the
+      order the reader should meet them. Swagger UI sorts groups by this
+      list and dumps undeclared tags into an unlabelled block at the
+      bottom of the page - which is where `Auth` and the support override
+      had been sitting, present in the spec and invisible on the screen.
+      `openapi-coverage.spec.ts` now fails on an undeclared tag.
+    */
+    .addTag('Auth', 'Exchange a GoTrue token for a JustGo session token.')
     .addTag('Me')
     .addTag('Client · Requests')
     .addTag('Catalogue')
@@ -3384,6 +3393,11 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
     .addTag('Documents')
     .addTag('Media')
     .addTag('Notifications')
+    .addTag(
+      'Ops',
+      'Platform and support desk. Each endpoint is gated on its own permission, ' +
+        'never on a blanket admin role.',
+    )
     .addTag('Health')
     .build();
 

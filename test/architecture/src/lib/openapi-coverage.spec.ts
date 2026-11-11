@@ -121,4 +121,51 @@ describe('architecture: OpenAPI coverage', () => {
     const real = new Set(routes.map((r) => `${r.method} ${r.path}`));
     expect(UNDOCUMENTED.filter((key) => !real.has(key))).toEqual([]);
   });
+
+  /*
+    A documented endpoint can still be an invisible one.
+
+    Swagger UI builds its groups from the DECLARED tag list, in that
+    order, and sweeps anything undeclared into an unlabelled block below
+    the last real group. An operation tagged `Ops` when no `.addTag('Ops')`
+    exists is in the spec, is served, answers requests - and is nowhere a
+    reader would ever scroll to. That is exactly how the support override
+    and the session exchange came to look missing while being live.
+
+    The two sides cannot be derived from each other, so they are compared.
+  */
+  it('declares every tag its operations use', () => {
+    const source = readFileSync(OPENAPI_FILE, 'utf8');
+
+    const declared = new Set(
+      [...source.matchAll(/\.addTag\(\s*'([^']+)'/g)].map((m) => m[1]),
+    );
+    const used = new Set(
+      [...source.matchAll(/^\s*tags: \[([^\]]+)\]/gm)].flatMap((m) =>
+        [...m[1].matchAll(/'([^']+)'/g)].map((t) => t[1]),
+      ),
+    );
+
+    expect(declared.size).toBeGreaterThan(10);
+    expect(used.size).toBeGreaterThan(10);
+
+    const undeclared = [...used].filter((t) => !declared.has(t)).sort();
+    expect(undeclared).toEqual([]);
+  });
+
+  /*
+    And the reverse: a declared tag with no operations renders as an
+    empty group, which reads as a feature that was removed.
+  */
+  it('declares no tag that nothing uses', () => {
+    const source = readFileSync(OPENAPI_FILE, 'utf8');
+    const declared = [...source.matchAll(/\.addTag\(\s*'([^']+)'/g)].map((m) => m[1]);
+    const used = new Set(
+      [...source.matchAll(/^\s*tags: \[([^\]]+)\]/gm)].flatMap((m) =>
+        [...m[1].matchAll(/'([^']+)'/g)].map((t) => t[1]),
+      ),
+    );
+
+    expect(declared.filter((t) => !used.has(t)).sort()).toEqual([]);
+  });
 });
