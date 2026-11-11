@@ -10,6 +10,20 @@ export type DocumentType =
 
 export type DocumentStatus = 'issued' | 'void';
 
+/**
+ * Who is asking for a document.
+ *
+ * Both parties to a facture are entitled to it: the client it was issued
+ * to, and the business that issued it — whose NIF, NIS, RC and article
+ * d'imposition are printed on it, and for whom the set of them is a
+ * sales ledger. A bare account id could only ever express the first.
+ */
+export interface DocumentActor {
+  accountId: AccountId;
+  /** Present on a supplier-scoped token. */
+  supplierId?: SupplierId;
+}
+
 export interface DocumentDTO {
   id: Uuid;
   type: DocumentType;

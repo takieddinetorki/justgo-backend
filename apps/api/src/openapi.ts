@@ -2592,16 +2592,66 @@ function enrich(doc: OpenAPIObject): void {
   // ── Documents ─────────────────────────────────────────────────────────
   set('/v1/documents', 'get', {
     tags: ['Documents'],
-    summary: 'Documents issued to the caller',
+    summary: 'Documents issued TO the caller — where a client finds its factures',
     description:
-      'There is deliberately no endpoint that CREATES a document from a request body. Documents are issued by the server from events it already trusts, because a signature over client-supplied content would certify nothing.',
-    parameters: [{ name: 'limit', in: 'query', schema: { type: 'integer', maximum: 100 } }],
+      '**This is the facture list for a client.** `GET /v1/documents?type=invoice` returns every facture issued to the caller, newest first; `GET /v1/documents/{id}/download` then gives a short-lived URL for the PDF.\n\n' +
+      'It answers by RECIPIENT. A business is not the recipient of its own facture, so a supplier wanting the ones it ISSUED wants `GET /v1/supplier/documents`.\n\n' +
+      '**Factures are issued automatically, never on demand.** There is deliberately no endpoint that CREATES a document from a request body and there will not be one: a signature over client-supplied content would certify nothing — a supplier could mint a facture for any amount against any NIF and our own key would vouch for it. The server issues them from events it already trusts, within seconds of the charge being recorded. Your job is to list, download and verify.',
+    parameters: [
+      { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
+      {
+        name: 'type',
+        in: 'query',
+        description: 'Narrow to one kind. `invoice` is the factures.',
+        schema: {
+          type: 'string',
+          enum: [
+            'reservation_confirmation',
+            'quotation',
+            'purchase_order',
+            'invoice',
+            'credit_note',
+            'receipt',
+          ],
+        },
+      },
+    ],
+    responses: { ...ok(listOf('Document')), ...errors() },
+  });
+  set('/v1/supplier/documents', 'get', {
+    tags: ['Documents'],
+    summary: 'Documents this business has ISSUED — its own ledger',
+    description:
+      'Requires a supplier-scoped token. `?type=invoice` is the sales ledger: every facture this business has issued, newest first.\n\n' +
+      'It exists because `GET /v1/documents` answers by recipient, which left a facture visible to the client and invisible to the business whose NIF, NIS, RC and article d’imposition are printed on it. A facture is not a courtesy copy for the issuer — it is the document that commits them, and the set of them is what an accountant asks for.\n\n' +
+      'Scoped to the token’s own supplier, so there is no id to tamper with. `GET /v1/documents/{id}/download` works for the issuer too.',
+    parameters: [
+      { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
+      {
+        name: 'type',
+        in: 'query',
+        description: 'Narrow to one kind. `invoice` is the factures.',
+        schema: {
+          type: 'string',
+          enum: [
+            'reservation_confirmation',
+            'quotation',
+            'purchase_order',
+            'invoice',
+            'credit_note',
+            'receipt',
+          ],
+        },
+      },
+    ],
     responses: { ...ok(listOf('Document')), ...errors() },
   });
   set('/v1/documents/{id}/download', 'get', {
     tags: ['Documents'],
     summary: 'Short-lived download URL',
-    description: 'The bucket is private — there is no permanent public link to a document.',
+    description:
+      'The bucket is private — there is no permanent public link to a document. Fetch the URL when the user taps; do not cache it.\n\n' +
+      'Either party to the document may download it: the client it was issued to, or — with a supplier-scoped token — the business that issued it. Anyone else gets **404**, not 403, because a document id should not be confirmable by someone with no claim to it.',
     responses: {
       '200': {
         description: 'OK',

@@ -1662,6 +1662,83 @@ async function main() {
     }
 
     /*
+      WHO CAN RETRIEVE IT.
+
+      Both parties, and the second one was missing entirely. The listing
+      answers by RECIPIENT, so a facture was visible to the client and
+      invisible to the business whose NIF, NIS, RC and article
+      d'imposition are printed on it - a business could not read its own
+      sales ledger. supplier_id had been written on every row since
+      migration 0020 and read by nothing.
+    */
+    const distinct = (xs) => xs.filter((v, i, all) => all.indexOf(v) === i);
+
+    const clientFactures = await call('GET', '/v1/documents?type=invoice&limit=50', {
+      token: client.token,
+    });
+    const mine = clientFactures.data?.items ?? [];
+    check('the client lists its factures, and only factures',
+      mine.length > 0 && mine.every((d) => d.type === 'invoice'),
+      `${mine.length} items, types ${distinct(mine.map((d) => d.type)).join(',')}`);
+
+    const ledger = await call('GET', '/v1/supplier/documents?type=invoice&limit=50', {
+      token: seller.token,
+    });
+    const issued = ledger.data?.items ?? [];
+    check('and the business lists what it ISSUED',
+      ledger.status === 200 && issued.some((d) => d.subjectId === bookingId),
+      `status ${ledger.status} ${issued.length} items`);
+    check('its ledger is factures only when asked for factures',
+      issued.every((d) => d.type === 'invoice'),
+      distinct(issued.map((d) => d.type)).join(','));
+
+    // Scoped to the token's own business - there is no id to tamper with.
+    const otherLedger = await call('GET', '/v1/supplier/documents?limit=50', {
+      token: other.token,
+    });
+    check("another business sees none of this business's documents",
+      !(otherLedger.data?.items ?? []).some((d) => d.subjectId === bookingId),
+      `${(otherLedger.data?.items ?? []).length} items`);
+
+    const junk = await call('GET', '/v1/documents?type=not-a-type', { token: client.token });
+    check('an unknown type is a 400, not silently ignored', junk.status === 400,
+      `status ${junk.status}`);
+
+    /*
+      THE PDF. Both parties get a short-lived signed URL; anybody else
+      gets 404, not 403 - a document id should not be confirmable by
+      someone with no claim to it.
+    */
+    if (serviceFacture) {
+      const byClient = await call('GET', `/v1/documents/${serviceFacture.id}/download`, {
+        token: client.token,
+      });
+      check('the client can download the PDF',
+        byClient.status === 200 && String(byClient.data?.url).startsWith('http'),
+        `status ${byClient.status}`);
+
+      const byIssuer = await call('GET', `/v1/documents/${serviceFacture.id}/download`, {
+        token: seller.token,
+      });
+      check('so can the business that issued it',
+        byIssuer.status === 200 && String(byIssuer.data?.url).startsWith('http'),
+        `status ${byIssuer.status}`);
+
+      const byStranger = await call('GET', `/v1/documents/${serviceFacture.id}/download`, {
+        token: other.token,
+      });
+      check('a third party gets 404, not 403', byStranger.status === 404,
+        `status ${byStranger.status}`);
+
+      // A signed URL that 404s is the failure this would otherwise hide.
+      const pdf = await fetch(String(byClient.data?.url));
+      const bytes = Buffer.from(await pdf.arrayBuffer());
+      check('and the URL really serves the sealed PDF',
+        pdf.status === 200 && bytes.subarray(0, 5).toString('latin1') === '%PDF-',
+        `HTTP ${pdf.status}, ${bytes.length} bytes, starts ${JSON.stringify(bytes.subarray(0, 5).toString('latin1'))}`);
+    }
+
+    /*
       A job done for nothing is a real outcome - goodwill, warranty, a
       repair that turned out not to be needed. It is recorded, and it
       must NOT burn a number out of a gapless fiscal series.

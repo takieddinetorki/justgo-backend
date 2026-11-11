@@ -4,7 +4,7 @@ import { CurrentAuth, Public, RequirePermissions, type AuthContext } from '@just
 import { Throttle } from '@nestjs/throttler';
 import { asId, ValidationError, type Uuid } from '@justgo/kernel';
 import { DOCUMENTS_PORT, type DocumentsPort } from './contract/documents.port';
-import type { DocumentDTO, VerificationResult } from './contract/dto';
+import type { DocumentDTO, DocumentType, VerificationResult } from './contract/dto';
 import { DOCUMENT_SIGNER, type DocumentSigner } from './contract/signer.port';
 
 const verifySchema = z
@@ -16,6 +16,35 @@ const verifySchema = z
 
 const voidSchema = z.object({ reason: z.string().min(3).max(500) }).strict();
 
+/*
+  `?type=invoice` is the query the apps actually make - "show me my
+  factures" - and without it a client with two years of reservation
+  confirmations has to pull the lot and filter on the device.
+*/
+const DOCUMENT_TYPES = [
+  'reservation_confirmation',
+  'quotation',
+  'purchase_order',
+  'invoice',
+  'credit_note',
+  'receipt',
+] as const;
+
+const listQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    type: z.enum(DOCUMENT_TYPES).optional(),
+  })
+  .strict();
+
+function parseListQuery(query: unknown): { limit?: number; type?: DocumentType } {
+  const parsed = listQuerySchema.safeParse(query ?? {});
+  if (!parsed.success) {
+    throw new ValidationError('Invalid document query', { issues: parsed.error.issues });
+  }
+  return parsed.data;
+}
+
 @Controller('documents')
 export class DocumentsController {
   constructor(
@@ -23,24 +52,42 @@ export class DocumentsController {
     @Inject(DOCUMENT_SIGNER) private readonly signer: DocumentSigner,
   ) {}
 
-  /** Documents issued to the caller. */
+  /**
+   * Documents issued TO the caller — the client's own copies.
+   *
+   * `?type=invoice` for factures only. A supplier wanting the ones it
+   * ISSUED wants `GET /v1/supplier/documents` instead; this endpoint
+   * answers by recipient, and a business is not the recipient of its own
+   * facture.
+   */
   @Get()
   @RequirePermissions()
   async mine(
     @CurrentAuth() auth: AuthContext,
-    @Query('limit') limit?: string,
+    @Query() query: unknown,
   ): Promise<{ items: DocumentDTO[] }> {
-    return { items: await this.documents.listForAccount(auth.accountId, limit ? Number(limit) : undefined) };
+    const { limit, type } = parseListQuery(query);
+    return { items: await this.documents.listForAccount(auth.accountId, limit, type) };
   }
 
-  /** Short-lived signed URL. The bucket is private; there is no public link. */
+  /**
+   * Short-lived signed URL. The bucket is private; there is no public link.
+   *
+   * Works for either party: the client it was issued to, or - with a
+   * supplier-scoped token - the business that issued it.
+   */
   @Get(':id/download')
   @RequirePermissions()
   async download(
     @CurrentAuth() auth: AuthContext,
     @Param('id') id: string,
   ): Promise<{ url: string }> {
-    return { url: await this.documents.downloadUrl(auth.accountId, asId<Uuid>(id)) };
+    return {
+      url: await this.documents.downloadUrl(
+        { accountId: auth.accountId, supplierId: auth.supplierScope?.supplierId },
+        asId<Uuid>(id),
+      ),
+    };
   }
 
   /**

@@ -13,6 +13,7 @@ import {
 import { Ed25519DocumentSigner } from './infra/ed25519-signer';
 import { PgDocumentsRepository } from './infra/pg-documents.repository';
 import { DocumentsController } from './documents.controller';
+import { SupplierDocumentsController } from './supplier-documents.controller';
 import { ReservationDocumentReactor } from './application/reservation-document.reactor';
 import { FactureReactor } from './application/facture.reactor';
 
@@ -60,7 +61,7 @@ export class DocumentsModule {
         second storage client.
       */
       global: true,
-      controllers: [DocumentsController],
+      controllers: [DocumentsController, SupplierDocumentsController],
       providers: [
         {
           provide: DOCUMENTS_REPOSITORY,

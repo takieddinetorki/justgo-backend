@@ -282,12 +282,39 @@ export class PgDocumentsRepository {
     return res.rows[0] ? toDTO(res.rows[0]) : null;
   }
 
-  async listForAccount(accountId: AccountId, limit: number): Promise<DocumentDTO[]> {
+  async listForAccount(
+    accountId: AccountId,
+    limit: number,
+    type?: DocumentType,
+  ): Promise<DocumentDTO[]> {
     const res = await this.pool.query<DocumentRow>(
       `select ${COLUMNS} from documents.documents
         where issued_to_account_id = $1
+          and ($3::text is null or type = $3)
         order by issued_at desc limit $2`,
-      [accountId, limit],
+      [accountId, limit, type ?? null],
+    );
+    return res.rows.map(toDTO);
+  }
+
+  /**
+   * The ISSUER's copy of what it has issued.
+   *
+   * Same query from the other side, and the side that was missing: the
+   * business whose fiscal identity is printed on a facture could not
+   * retrieve it, because the only listing filtered on the recipient.
+   */
+  async listForSupplier(
+    supplierId: SupplierId,
+    limit: number,
+    type?: DocumentType,
+  ): Promise<DocumentDTO[]> {
+    const res = await this.pool.query<DocumentRow>(
+      `select ${COLUMNS} from documents.documents
+        where supplier_id = $1
+          and ($3::text is null or type = $3)
+        order by issued_at desc limit $2`,
+      [supplierId, limit, type ?? null],
     );
     return res.rows.map(toDTO);
   }

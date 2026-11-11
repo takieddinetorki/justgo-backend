@@ -4,11 +4,13 @@ import {
   NotFoundError,
   ValidationError,
   type AccountId,
+  type SupplierId,
   type Uuid,
 } from '@justgo/kernel';
 import { MEDIA_PORT, type MediaPort } from '@justgo/media';
 import type { DocumentsPort } from '../contract/documents.port';
 import type {
+  DocumentActor,
   DocumentDTO,
   DocumentType,
   IssueDocumentInput,
@@ -226,19 +228,46 @@ export class DocumentsService implements DocumentsPort {
     });
   }
 
-  async downloadUrl(callerAccountId: AccountId, documentId: Uuid): Promise<string> {
+  /**
+   * TWO parties may download a document, not one.
+   *
+   * The client it was issued to, obviously. And the business that issued
+   * it, which used to be refused: a facture carries that business's NIF,
+   * NIS, RC and article d'imposition, and the set of them is its sales
+   * ledger. It was storing a `supplier_id` on every row and letting
+   * nobody use it.
+   *
+   * Anyone else gets 404 rather than 403, because a document id should
+   * not be confirmable by someone with no claim to it.
+   */
+  async downloadUrl(actor: DocumentActor, documentId: Uuid): Promise<string> {
     const doc = await this.repo.byId(documentId);
     if (!doc) throw new NotFoundError('Document', documentId);
-    if (doc.issuedToAccountId !== callerAccountId) {
-      // 404 rather than 403: a document id should not be confirmable by
-      // someone it was not issued to.
-      throw new NotFoundError('Document', documentId);
-    }
+
+    const isRecipient = doc.issuedToAccountId === actor.accountId;
+    const isIssuer =
+      actor.supplierId !== undefined &&
+      doc.supplierId !== null &&
+      doc.supplierId === actor.supplierId;
+    if (!isRecipient && !isIssuer) throw new NotFoundError('Document', documentId);
+
     return this.media.createSignedDownloadUrl({ bucket: doc.bucket, path: doc.path });
   }
 
-  async listForAccount(accountId: AccountId, limit = 50): Promise<DocumentDTO[]> {
-    return this.repo.listForAccount(accountId, Math.min(limit, 100));
+  async listForAccount(
+    accountId: AccountId,
+    limit = 50,
+    type?: DocumentType,
+  ): Promise<DocumentDTO[]> {
+    return this.repo.listForAccount(accountId, Math.min(limit, 100), type);
+  }
+
+  async listForSupplier(
+    supplierId: SupplierId,
+    limit = 50,
+    type?: DocumentType,
+  ): Promise<DocumentDTO[]> {
+    return this.repo.listForSupplier(supplierId, Math.min(limit, 100), type);
   }
 
   /**

@@ -937,11 +937,50 @@ nothing, so retries are safe. A **different** amount is
 hands, and correcting it is a credit note, not an `UPDATE`. Charging a
 booking that is not completed is `409 RESERVATION_NOT_COMPLETED`.
 
-The facture is issued asynchronously, within seconds, and appears in the
-client's `GET /v1/documents`. It is **not** issued if the supplier's fiscal
-profile is incomplete — NIF, NIS, RC and the article d'imposition are
-mandatory mentions, and a facture without them is not a tax document. Fill
-them in with `PATCH /v1/supplier/fiscal`.
+#### Automatically, never on demand
+
+**You never ask for a facture.** There is no endpoint that creates one,
+and there will not be: a signature over content the client supplied would
+certify nothing — a supplier could mint a facture for any amount against
+any NIF and our own key would vouch for it. The server issues them off
+events it already trusts, within a few seconds of the charge being
+recorded. Poll the list, or just read it next time the screen opens.
+
+It is **not** issued if the supplier's fiscal profile is incomplete — NIF,
+NIS, RC and the article d'imposition are mandatory mentions in Algeria, and
+a facture without them is not a tax document. Fill them in with
+`PATCH /v1/supplier/fiscal`. Nothing fails loudly here: the charge is
+recorded and no document appears, so a business with an incomplete profile
+quietly accumulates uninvoiced work. Check the profile before you let them
+start charging.
+
+Issuance is **exactly once per supply**, enforced by a unique index on
+(type, subject_type, subject_id) rather than by a check in code, so a
+redelivered event cannot produce a second facture for one sale.
+
+#### Retrieving them
+
+| who | endpoint |
+|---|---|
+| the **client** — factures issued to them | `GET /v1/documents?type=invoice` |
+| the **business** — factures it issued | `GET /v1/supplier/documents?type=invoice` |
+| either party — the PDF | `GET /v1/documents/{id}/download` |
+
+Two listings because they answer different questions. `GET /v1/documents`
+answers **by recipient**, and a business is not the recipient of its own
+facture — so the supplier-scoped one is how a business reads its own
+ledger, the set of documents that carry its fiscal identity and that it is
+required to keep. Both take `?limit=` (max 100, newest first) and
+`?type=`; drop `type` to get confirmations and the rest alongside.
+
+`GET /v1/documents/{id}/download` → `{ url }`, a **short-lived signed
+URL** to the stored PDF. The bucket is private and there is no permanent
+public link, so fetch it when the user taps and do not cache it. Either
+party may download; anyone else gets **404**, not 403.
+
+To show a total without downloading the PDF, scan it:
+`GET /v1/documents/verify/{contentHash}` returns `content.totalMinor`,
+`content.currency` and the printed lines. See **Documents** below.
 
 ### Supplier · Dispatch (assistance) — Phase 3 (supplier-scoped)
 - **`PATCH /v1/supplier/assistance/{id}`** body
@@ -1231,11 +1270,20 @@ nothing — a supplier could mint a facture for any amount against any NIF and
 our own key would vouch for it. Documents are issued by the server off events
 it already trusts. Your job is to list, download and verify them.
 
-- **`GET /v1/documents?limit=`** → `{ items: Document[] }` — documents issued
-  to the caller.
+- **`GET /v1/documents?limit=&type=`** → `{ items: Document[] }` — documents
+  issued **to** the caller, newest first. `?type=invoice` for factures only.
+  This is where a client finds its factures.
+- **`GET /v1/supplier/documents?limit=&type=`** → `{ items: Document[] }` —
+  documents this business **issued**. Supplier-scoped; needs `order.read`.
+  `?type=invoice` is its sales ledger. It exists because the listing above
+  answers by recipient, and a business is not the recipient of its own
+  facture — which left every facture visible to the client and invisible to
+  the party whose NIF is printed on it.
 - **`GET /v1/documents/{id}/download`** → `{ url }`, a **short-lived** signed
   URL. The bucket is private; there is no permanent public link. Fetch the URL
-  when the user taps, do not cache it.
+  when the user taps, do not cache it. **Either party** may download it: the
+  client it was issued to, or the issuing business on a supplier-scoped
+  token. Anyone else gets 404, not 403.
 - **`GET /v1/documents/verify/{fingerprint}`** → `VerificationResult`.
   **Public.** This is what the QR opens, so anyone holding a paper copy can
   check it. `fingerprint` is the document's `contentHash`; **separators and

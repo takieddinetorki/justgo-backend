@@ -1,6 +1,8 @@
-import type { AccountId, Uuid } from '@justgo/kernel';
+import type { AccountId, SupplierId, Uuid } from '@justgo/kernel';
 import type {
+  DocumentActor,
   DocumentDTO,
+  DocumentType,
   IssueDocumentInput,
   IssueInvoiceInput,
   VerificationResult,
@@ -30,9 +32,26 @@ export interface DocumentsPort {
    * official without them.
    */
   issueInvoice(input: IssueInvoiceInput): Promise<DocumentDTO>;
-  /** A short-lived signed URL for the stored bytes. Never a public link. */
-  downloadUrl(callerAccountId: AccountId, documentId: Uuid): Promise<string>;
-  listForAccount(accountId: AccountId, limit?: number): Promise<DocumentDTO[]>;
+  /**
+   * A short-lived signed URL for the stored bytes. Never a public link.
+   *
+   * The actor is the whole caller, not just an account id, because a
+   * document has TWO parties entitled to it: the client it was issued to
+   * and the business that issued it. A supplier-scoped token reaches its
+   * own factures through `supplierId`.
+   */
+  downloadUrl(actor: DocumentActor, documentId: Uuid): Promise<string>;
+  listForAccount(
+    accountId: AccountId,
+    limit?: number,
+    type?: DocumentType,
+  ): Promise<DocumentDTO[]>;
+  /** What a business has ISSUED — its own ledger. */
+  listForSupplier(
+    supplierId: SupplierId,
+    limit?: number,
+    type?: DocumentType,
+  ): Promise<DocumentDTO[]>;
   /** Public: re-hashes the stored object and checks the signature. */
   verifyByNumber(number: string, suppliedFile?: Uint8Array): Promise<VerificationResult>;
   /** Admin only. Leaves the stored bytes untouched. */
